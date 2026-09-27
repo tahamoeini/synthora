@@ -73,4 +73,5 @@ See the [documentation index](README.md) for the current owner and status of eac
 - docs/market-data-and-forecasting.md and docs/financial-model-audit.md hold market-data and calculation invariants.
 - docs/cloudflare-market-api.md describes the current Pages Functions setup.
 - docs/data-persistence-and-sync-plan.md is a research-backed proposal. It does not mean accounts, sync, remote user records, or scheduled market ingestion exist or are approved for implementation.
+- Migration 0003 is retained only as a historical sync-schema artifact pending deployment-state verification. It targets a dedicated `USER_DATA_DB`; never apply it to `API_USAGE_DB`. The current API database uses active migrations 0001, 0002, and 0004.
 - Audit and QA documents are historical records of particular reviews, not current release status. Verify behavior in source and tests when they disagree with the implementation.

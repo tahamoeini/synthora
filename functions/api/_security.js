@@ -1,5 +1,8 @@
 const SESSION_COOKIE = "synthora_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
+const SESSION_BOOTSTRAP_LIMIT = 60;
+const SESSION_BOOTSTRAP_WINDOW_SECONDS = 60 * 60;
+const CLEANUP_BATCH_SIZE = 100;
 const encoder = new TextEncoder();
 
 const ROUTE_LIMITS = Object.freeze({
@@ -65,6 +68,60 @@ async function sha256(value) {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+async function reserveSessionBootstrap(request, db, now, secret) {
+  const clientAddress = request.headers.get("cf-connecting-ip")?.trim();
+  if (!clientAddress || clientAddress.length > 128)
+    return { error: jsonResponse({ error: "session-limit-unavailable" }, 503) };
+
+  const hashBytes = new Uint8Array(
+    await crypto.subtle.sign(
+      "HMAC",
+      await signingKey(secret),
+      encoder.encode(`synthora-session-bootstrap-v1:${clientAddress}`),
+    ),
+  );
+  const clientHash = [...hashBytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  const windowStart = Math.floor(now / SESSION_BOOTSTRAP_WINDOW_SECONDS) * SESSION_BOOTSTRAP_WINDOW_SECONDS;
+  try {
+    const row = await db
+      .prepare(
+        "INSERT INTO api_session_issuance (client_hash, window_start, request_count) VALUES (?1, ?2, 1) ON CONFLICT(client_hash, window_start) DO UPDATE SET request_count = request_count + 1 WHERE request_count < ?3 RETURNING request_count",
+      )
+      .bind(clientHash, windowStart, SESSION_BOOTSTRAP_LIMIT)
+      .first();
+    if (!row) {
+      const retryAfter = Math.max(1, windowStart + SESSION_BOOTSTRAP_WINDOW_SECONDS - now);
+      return {
+        error: jsonResponse({ error: "rate-limit-exceeded", retryAfterSeconds: retryAfter }, 429, {
+          "retry-after": String(retryAfter),
+        }),
+      };
+    }
+
+    await db
+      .prepare(
+        "DELETE FROM api_usage WHERE session_hash IN (SELECT session_hash FROM api_sessions WHERE expires_at <= ?1 ORDER BY expires_at LIMIT ?2)",
+      )
+      .bind(now, CLEANUP_BATCH_SIZE)
+      .run();
+    await db
+      .prepare(
+        "DELETE FROM api_sessions WHERE session_hash IN (SELECT session_hash FROM api_sessions WHERE expires_at <= ?1 ORDER BY expires_at LIMIT ?2)",
+      )
+      .bind(now, CLEANUP_BATCH_SIZE)
+      .run();
+    await db
+      .prepare(
+        "DELETE FROM api_session_issuance WHERE (client_hash, window_start) IN (SELECT client_hash, window_start FROM api_session_issuance WHERE window_start < ?1 ORDER BY window_start LIMIT ?2)",
+      )
+      .bind(windowStart, CLEANUP_BATCH_SIZE)
+      .run();
+    return {};
+  } catch {
+    return { error: jsonResponse({ error: "api-quota-unavailable" }, 503) };
+  }
+}
+
 export async function readSession(request, env) {
   const secret = secretFor(env);
   const db = databaseFor(env);
@@ -103,9 +160,12 @@ export async function issueSession(request, env) {
   const secret = secretFor(env);
   const db = databaseFor(env);
   if (!secret || !db) return jsonResponse({ error: "api-security-not-configured" }, 503);
+  const now = Math.floor(Date.now() / 1000);
+  const bootstrap = await reserveSessionBootstrap(request, db, now, secret);
+  if (bootstrap.error) return bootstrap.error;
   const idBytes = crypto.getRandomValues(new Uint8Array(32));
   const id = base64Url(idBytes);
-  const expiresAt = Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS;
+  const expiresAt = now + SESSION_TTL_SECONDS;
   const expiresText = String(expiresAt);
   const signature = new Uint8Array(
     await crypto.subtle.sign("HMAC", await signingKey(secret), encoder.encode(`${id}.${expiresText}`)),
@@ -115,7 +175,7 @@ export async function issueSession(request, env) {
   try {
     await db
       .prepare("INSERT INTO api_sessions (session_hash, created_at, expires_at) VALUES (?1, ?2, ?3)")
-      .bind(sessionHash, Math.floor(Date.now() / 1000), expiresAt)
+      .bind(sessionHash, now, expiresAt)
       .run();
   } catch {
     return jsonResponse({ error: "api-security-unavailable" }, 503);

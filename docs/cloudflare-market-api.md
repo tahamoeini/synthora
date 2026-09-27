@@ -6,7 +6,10 @@ The market, history, inflation, and FX endpoints require a Cloudflare Pages Func
 
 1. In Cloudflare, open **Workers & Pages**, select the Pages project, then open **Settings → Functions → D1 database bindings**.
 2. Create a D1 database for this project, then add a binding with the exact variable name `API_USAGE_DB`.
-3. Apply every SQL migration in [functions/api/migrations/](../functions/api/migrations/) once, in numeric order. For the current schema, apply 0001_api_quotas.sql first, then 0002_provider_coordination.sql. The first creates session and route-quota tables; the second adds provider cooldown state and the shared provider-response cache.
+3. Apply active `API_USAGE_DB` migrations 0001, 0002, and 0004 in numeric order, after checking which migrations are already present. Migration 0001 creates session and route-quota tables, 0002 adds provider cooldown state and the shared provider-response cache, and 0004 adds the session-bootstrap limit. Do not run the migration directory as a batch.
+
+Migration 0003 (`0003_private_sync.sql`) is retained as a historical artifact because its deployment state has not been verified. It targets a dedicated `USER_DATA_DB` only; never apply it to `API_USAGE_DB`. Do not remove or alter that migration until production and preview bindings and any associated data have been verified.
+
 4. Add the binding for production and preview environments. Deploy again after changing bindings.
 
 The migrations store hashed API-session identifiers, request counters, provider coordination, and provider-response cache entries. D1 does not contain personal portfolio data or raw provider API keys.
@@ -42,6 +45,7 @@ Current server-side limits are:
 - `/api/history`: 24 requests per hour per signed session.
 - `/api/inflation`: 6 requests per day per signed session.
 - `/api/fx`: 60 requests per hour per signed session.
+- `POST /api/session`: 60 new sessions per hour per Cloudflare edge address, enforced atomically in D1. A valid existing session is reused without spending this allowance. Requests without `CF-Connecting-IP` fail closed.
 - Platform CoinMarketCap key: 15,000 requests per month maximum, enforced by this application.
 - Platform CoinGecko key: 8,000 requests per month by default, capped at 9,500 by the application.
 
@@ -58,7 +62,7 @@ The user chooses whether the key stays only in the open page, in session storage
 This repository does not commit account-specific Wrangler configuration. For a local preview with working API routes:
 
 1. Create a local `.dev.vars` file containing an `API_SESSION_SIGNING_SECRET` with at least 32 random characters. Use a local-only value; never copy the production secret. Keep `.dev.vars` out of source control.
-2. Bind a local D1 database as `API_USAGE_DB`, then apply `0001_api_quotas.sql` and `0002_provider_coordination.sql` in numeric order. For Wrangler's migration command, the local Wrangler config must map that binding and set `migrations_dir` to `functions/api/migrations`; run `npx wrangler d1 migrations apply API_USAGE_DB --local` against that local configuration.
+2. Bind a local D1 database as `API_USAGE_DB`, inspect its existing schema, then apply `0001_api_quotas.sql`, `0002_provider_coordination.sql`, and `0004_api_session_bootstrap_limit.sql` individually in numeric order if needed. Use `npx wrangler d1 execute API_USAGE_DB --local --file=functions/api/migrations/<migration-file>` for each active migration. Do not use the directory-wide migration command while migration 0003 remains in the directory.
 3. Start the Pages preview with `npx wrangler pages dev . --compatibility-date=2026-09-18 --d1 API_USAGE_DB=<local-database-id>`. Use the same local database ID mapped in the Wrangler config; Wrangler uses local persistence by default. Do not add `--remote` or use a local preview command to apply migrations to production.
 
 If the D1 binding, local schema, or signing secret is absent, security-protected API routes return `api-security-not-configured` or a database error. The static interface can still be inspected, but market and reference-data requests will not work. See Cloudflare's [Pages binding guide](https://developers.cloudflare.com/pages/functions/bindings/), [local secrets guide](https://developers.cloudflare.com/workers/local-development/environment-variables/), and [D1 Wrangler commands](https://developers.cloudflare.com/d1/wrangler-commands/) for current CLI details.

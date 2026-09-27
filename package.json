@@ -10,7 +10,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "node --test",
-    "check": "node --check app.js && node --check src/engine.js && node --check src/analysis.js && node --check src/analysis.worker.js && node --check src/history.js && node --check src/portfolio.js && node --check src/market/cache.js && node --check src/market/catalog.js && node --check src/market/history.js && node --check src/market/reconcile.js && node --check src/ui/charts.js && node --check functions/api/_security.js && node --check functions/api/session.js && node --check functions/api/inflation.js && node --check functions/api/market.js && node --check functions/api/history.js && node --check functions/api/fx.js && node --check src/ui/localization.js && node --check src/ui/preferences.js && node --check src/ui/preferences-boot.js"
+    "check": "node scripts/check-syntax.js"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.0",

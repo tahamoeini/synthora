@@ -2,7 +2,7 @@
 
 import { clamp, normalizeAllocation } from "./engine.js";
 import { OPTIONAL_RECOMMENDATION_ASSETS, PLAN_ASSET_KEYS } from "./market/catalog.js";
-import { PORTFOLIO_SCHEMA, PORTFOLIO_VERSION, normalizePortfolio } from "./portfolio.js";
+import { PORTFOLIO_SCHEMA, PORTFOLIO_VERSION, normalizePortfolio, validateImportedPortfolio } from "./portfolio.js";
 
 export const HISTORY_SCHEMA = "invest-consult-history";
 export const HISTORY_VERSION = 3;
@@ -261,7 +261,9 @@ export function parseHistoryExport(value) {
       !Array.isArray(data.portfolio.versions)
     )
       throw new Error("invalid-portfolio-format");
-    portfolio = normalizePortfolio(data.portfolio);
+    const validated = validateImportedPortfolio(data.portfolio);
+    if (!validated.valid) throw new Error("invalid-portfolio-ledger");
+    portfolio = validated.portfolio;
   }
   return {
     records,

@@ -26,8 +26,6 @@ The current product boundary is a static browser app with same-origin market and
 | D1 schema                   | functions/api/migrations/                              | Ordered SQL migrations for API sessions, quotas, provider cooldowns, and shared response-cache coordination     |
 | Copy and checks             | content/*.json, tests/, package.json                   | Persian base copy, partial alternate locale catalogs, Node tests, formatting, lint, and syntax-check scripts    |
 
-src/engine.before-audit.mjs is a historical snapshot, not the runtime calculation module.
-
 ## Preserve these product and data rules
 
 - Keep account values, portfolio ledger amounts, and model calculations in تومان. Display-currency conversion must not rewrite the saved ledger or change model units.

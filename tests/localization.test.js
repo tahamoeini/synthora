@@ -112,6 +112,52 @@ test("portfolio, reference, and appearance controls have reviewed static transla
   }
 });
 
+test("runtime-rendered messages stay in one language across locales", () => {
+  const base = readCatalog("fa");
+  const runtimeMessages = [
+    "کمتر از یک ماه",
+    "کلیدی ثبت نشده؛ در صورت نیاز، کلید CoinGecko Demo را وارد کن.",
+    "تک‌محور",
+    "ثبت‌شده",
+    "نسبی",
+    "بالا",
+    "ناقص",
+    "کامل",
+    "TGJU · شاخص کل",
+    "فاصله خرید و فروش",
+    "P10 واقعی · افت دامنه",
+    "P90 اسمی · دامنه بالاتر",
+    "بازده اسمی سناریوی مرکزی (CAGR)",
+    "بازده واقعی سناریوی مرکزی (CAGR)",
+    "CAGR اسمی میانه",
+    "CAGR واقعی میانه",
+    "کلید Demo رمزارز تنظیم نشده",
+    "برای نمایش تاریخچه رمزارز، کلید اختیاری CoinGecko Demo را در تنظیمات سرور قرار بده.",
+    "تومان برای هر دلار",
+    "اختلاف منابع؛ عدد میانه با اطمینان پایین",
+    "اختلاف منابع؛ برآورد میانه",
+    "زمان مشاهده‌ی برخی نرخ‌ها نامشخص",
+    "اعتماد متوسط",
+    "اطمینان پایین",
+    "اعتماد بالا",
+    "یک منبع",
+    "قیمت‌های دریافت‌شده از منابع",
+    "3 دسته دارایی در سبد ارزش‌گذاری شده است.",
+    "بیشترین وزن تقریبا 75% است.",
+    "برای 2 دارایی قیمت معتبر ثبت نشده است.",
+    "همه دارایی‌های دارای موجودی، قیمت قابل استفاده دارند.",
+    "12 ماه مشترک · 2024–2026",
+    "بازده ماهانه مشترک برای همه دارایی‌های بازاری لازم است.",
+  ];
+  for (const locale of ["en", "ru", "zh"]) {
+    const catalog = createLocalizedCatalog(base, readCatalog(locale));
+    for (const message of runtimeMessages) {
+      const translated = translateCopy(message, catalog.phrases);
+      assert.doesNotMatch(translated, /[\u0600-\u06ff]/u, `${locale} leaves runtime copy untranslated: ${message}`);
+    }
+  }
+});
+
 test("phrase translation does not replace short words inside longer Persian words", () => {
   const phrases = { تا: "to", نسخه: "version", ماه: "month", "تاریخچه برنامه": "Plan history" };
   assert.equal(translateCopy("تاریخچه", phrases), "تاریخچه");

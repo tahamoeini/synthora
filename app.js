@@ -13,6 +13,7 @@ import {
   recommendAllocation,
 } from "./src/engine.js";
 import { createHistoryExport, mergeHistory, parseHistoryExport } from "./src/history.js";
+import { writeJsonBatch } from "./src/ui/atomic-storage.js";
 import {
   PORTFOLIO_ASSETS,
   activePortfolioVersion,
@@ -2476,7 +2477,7 @@ function renderEmergencyCoverage(portfolioResult = null) {
   const coverageLabel =
     coverageMonths === null
       ? text("portfolio.coverageMissing")
-      : `${new Intl.NumberFormat("fa-IR", { maximumFractionDigits: 1 }).format(coverageMonths)} ${text("portfolio.months")}`;
+      : `${new Intl.NumberFormat(currentLocale().numberLocale, { maximumFractionDigits: 1 }).format(coverageMonths)} ${text("portfolio.months")}`;
   const coverageMetric = $("#portfolio-emergency-coverage");
   if (coverageMetric) coverageMetric.textContent = coverageLabel;
   const emergencyStatus = $("#emergency-fund-status");
@@ -3121,6 +3122,15 @@ function renderHistoricalComparison() {
         : historyComparisonCurrency === "USD"
           ? "دلار"
           : "تومان";
+  const historyPriceLabel = (value, assetId) => {
+    const unit =
+      assetId === "bourseIndex"
+        ? text("history.indexPoints", "نقطه")
+        : assetId === "dollar"
+          ? `${currencyName("TOMAN")} / ${currencyName("USD")}`
+          : currencyName(historyComparisonCurrency);
+    return `${formatIRR(value)} ${unit}`;
+  };
   if (historyComparisonMode === "price") {
     chart.innerHTML = comparison.series.length
       ? comparison.series
@@ -3133,7 +3143,7 @@ function renderHistoricalComparison() {
                   ],
                   ariaLabel: `قیمت ${item.name} به ${unitFor(item.id)}`,
                   emptyLabel: "برای این بازه داده‌ی قیمت کافی در دسترس نیست.",
-                  valueLabel: (value) => formatIRR(value),
+                  valueLabel: (value) => historyPriceLabel(value, item.id),
                   height: 280,
                 },
               )}</div></section>`,
@@ -3886,21 +3896,23 @@ async function importHistoryFile(event) {
     const importedRecords = parsed.currencyUnit === "TOMAN" ? parsed.records : migrateHistoryCurrency(parsed.records);
     const current = readHistory();
     const merged = mergeHistory(current, importedRecords, HISTORY_LIMIT);
-    if (!writeJson(HISTORY_KEY, merged)) throw new Error("storage-failed");
     let portfolioRestored = false;
     let portfolioSkipped = false;
+    let importedPortfolio = null;
     if (parsed.portfolio) {
-      const importedPortfolio =
+      importedPortfolio =
         parsed.currencyUnit === "TOMAN" ? parsed.portfolio : migratePortfolioCurrency(parsed.portfolio);
       const currentPortfolio = readPortfolio();
       const currentHasPortfolio = activePortfolioVersion(currentPortfolio).transactions.length > 0;
       if (!currentHasPortfolio || window.confirm(text("portfolio.importConfirm"))) {
-        if (!writePortfolio(importedPortfolio)) throw new Error("storage-failed");
         portfolioRestored = true;
       } else {
         portfolioSkipped = true;
       }
     }
+    const writes = [[HISTORY_KEY, merged]];
+    if (portfolioRestored) writes.push([PORTFOLIO_KEY, importedPortfolio]);
+    if (!writeJsonBatch(localStorage, writes)) throw new Error("storage-failed");
     renderHistory();
     renderPortfolio();
     const skipped = parsed.skipped

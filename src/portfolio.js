@@ -156,7 +156,7 @@ function makeId(prefix = "id") {
 }
 
 function assetDefinition(assetId, assets = PORTFOLIO_ASSETS) {
-  return assets && assets[assetId] ? assets[assetId] : null;
+  return assets && Object.hasOwn(assets, assetId) ? assets[assetId] : null;
 }
 
 function assetRegistry(portfolio) {
@@ -457,6 +457,23 @@ export function normalizePortfolio(raw) {
     activeVersionId,
     versions,
   };
+}
+
+export function validateImportedPortfolio(raw) {
+  const portfolio = normalizePortfolio(raw);
+  const sourceVersions = Array.isArray(raw?.versions) ? raw.versions : [];
+  const versionsPreserved =
+    portfolio.versions.length === sourceVersions.length &&
+    sourceVersions.every((version) => version && typeof version === "object" && Array.isArray(version.transactions));
+  const transactionsPreserved =
+    versionsPreserved &&
+    sourceVersions.every((sourceVersion, index) => {
+      const sourceTransactions = Array.isArray(sourceVersion?.transactions) ? sourceVersion.transactions : [];
+      return portfolio.versions[index].transactions.length === sourceTransactions.length;
+    });
+  const assets = assetRegistry(portfolio);
+  const validLedgers = portfolio.versions.every((version) => validateLedger(version.transactions, assets).valid);
+  return { portfolio, valid: versionsPreserved && transactionsPreserved && validLedgers };
 }
 
 export function activePortfolioVersion(portfolio) {

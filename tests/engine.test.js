@@ -444,6 +444,59 @@ test("history merge keeps current duplicate timestamps and applies the limit", (
   assert.equal(merged[0].total, 1);
 });
 
+test("history import rejects inherited asset names and unbacked transfers without dropping ledger entries", () => {
+  const base = createHistoryExport([], createEmptyPortfolio("2026-01-01T00:00:00.000Z"));
+  const version = base.portfolio.versions[0];
+  for (const assetId of ["__proto__", "constructor", "toString", "hasOwnProperty"]) {
+    version.transactions = [
+      {
+        id: `bad-${assetId}`,
+        type: "BUY",
+        assetId,
+        quantity: 1,
+        unitPrice: 10,
+        date: "2026-01-01T00:00:00.000Z",
+      },
+    ];
+    assert.throws(() => parseHistoryExport(base), /invalid-portfolio-ledger/);
+  }
+
+  version.transactions = [
+    { id: "opening", type: "OPENING", assetId: "gold", quantity: 1, unitPrice: 10, date: "2026-01-01" },
+    {
+      id: "unbacked-transfer",
+      type: "TRANSFER",
+      assetId: "gold",
+      targetAssetId: "fixed",
+      quantity: 2,
+      targetQuantity: 1,
+      date: "2026-01-02",
+    },
+  ];
+  assert.throws(() => parseHistoryExport(base), /invalid-portfolio-ledger/);
+});
+
+test("history import retains valid legacy-stock and custom-asset ledgers", () => {
+  const exported = createHistoryExport([], createEmptyPortfolio("2026-01-01T00:00:00.000Z"));
+  const portfolio = exported.portfolio;
+  portfolio.versions[0].transactions = [
+    { id: "legacy-stock", type: "OPENING", assetId: "stocks", quantity: 2, unitPrice: 10, date: "2026-01-01" },
+    {
+      id: "custom-asset",
+      type: "OPENING",
+      assetId: "custom:watch",
+      quantity: 3,
+      unitPrice: 10,
+      date: "2026-01-02",
+    },
+  ];
+  portfolio.assets["custom:watch"] = { title: "Watch", sleeveId: "iranEquity" };
+  const parsed = parseHistoryExport(exported);
+  assert.equal(parsed.portfolio.versions[0].transactions.length, 2);
+  assert.ok(Object.hasOwn(parsed.portfolio.assets, "custom:watch"));
+  assert.ok(Object.hasOwn(parsed.portfolio.assets, "custom:legacy-stocks"));
+});
+
 test("portfolio ledger replays cash flows and values holdings from market data", () => {
   const portfolioMarket = {
     updatedAt: "2026-01-01T00:00:00.000Z",
