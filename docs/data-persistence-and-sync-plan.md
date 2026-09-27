@@ -20,11 +20,11 @@ This is the lowest-friction option that fits the existing Cloudflare deployment 
 
 ### Recommended storage choices shown to users
 
-| Choice                    | What it means                                                                                          | Initial availability                 |
-| ------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------ |
-| This device only          | Personal data stays in this browser profile. It works offline; users export a backup themselves.       | Default; no account required         |
-| Sync with Synthora        | User-encrypted snapshot can be uploaded and restored on another device with the recovery key.             | Implemented, opt-in manual snapshot  |
-| Back up to my cloud drive | A user-visible backup file is written to the user's Google Drive or OneDrive account.                  | Later, optional provider integration |
+| Choice                    | What it means                                                                                    | Initial availability                 |
+| ------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------ |
+| This device only          | Personal data stays in this browser profile. It works offline; users export a backup themselves. | Default; no account required         |
+| Sync with Synthora        | User-encrypted snapshot can be uploaded and restored on another device with the recovery key.    | Implemented, opt-in manual snapshot  |
+| Back up to my cloud drive | A user-visible backup file is written to the user's Google Drive or OneDrive account.            | Later, optional provider integration |
 
 Sync stays off until the user creates or enters a recovery key and explicitly uploads. The current client encrypts its allow-listed snapshot before upload and requires the recovery key on each device. It offers connect, upload, restore, delete, and disconnect controls; it is not an account login or a substitute for a separately saved recovery key.
 

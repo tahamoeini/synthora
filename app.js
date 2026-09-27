@@ -895,11 +895,9 @@ function validateSyncRecords(records) {
     )
       throw new Error("sync.invalidSnapshot");
     const locale = ["fa", "en", "ru", "zh"].includes(preferences?.locale) ? preferences.locale : null;
-    const currency = [null, "TOMAN", "USD", "RUB", "CNY"].includes(preferences?.currency)
-      ? preferences.currency
-      : null;
+    const currency = [null, "TOMAN", "USD", "RUB", "CNY"].includes(preferences?.currency) ? preferences.currency : null;
     const theme = ["system", "light", "dark"].includes(preferences?.theme) ? preferences.theme : null;
-    if (!locale || currency === null && preferences.currency !== null || !theme)
+    if (!locale || (currency === null && preferences.currency !== null) || !theme)
       throw new Error("sync.invalidSnapshot");
     writes.push([UI_PREFERENCES_KEY, { locale, currency, theme }]);
   }
@@ -926,7 +924,8 @@ function syncErrorMessage(error) {
     return text("sync.unavailable");
   if (apiError === "rate-limit-exceeded") return text("sync.rateLimited");
   if (apiError === "sync-conflict") return text("sync.conflict");
-  if (apiError === "session-required" || apiError === "session-limit-unavailable") return text("sync.sessionUnavailable");
+  if (apiError === "session-required" || apiError === "session-limit-unavailable")
+    return text("sync.sessionUnavailable");
   const localError = typeof error?.message === "string" ? error.message.replace(/^sync\./u, "") : "";
   if (localError && copy?.sync?.[localError]) return text(`sync.${localError}`);
   return text("sync.requestFailed");
@@ -1066,7 +1065,10 @@ async function restoreRemoteSyncSnapshot() {
     renderMarket(liveMarket, lastKnownMarket);
     setSyncStatus(text("sync.restored"), "success");
   } catch (error) {
-    setSyncStatus(error?.message === "sync.localWriteFailed" ? text("sync.localWriteFailed") : syncErrorMessage(error), "warning");
+    setSyncStatus(
+      error?.message === "sync.localWriteFailed" ? text("sync.localWriteFailed") : syncErrorMessage(error),
+      "warning",
+    );
   }
 }
 
@@ -2463,7 +2465,10 @@ function populatePortfolioAssetOptions() {
       .join("");
     const customAssets = Object.entries(portfolio.assets || {}).filter(([assetId]) => assetId.startsWith("custom:"));
     const customOptions = customAssets
-      .map(([assetId, asset]) => `<option value="${escapeHTML(assetId)}" data-user-content>${escapeHTML(asset.title)}</option>`)
+      .map(
+        ([assetId, asset]) =>
+          `<option value="${escapeHTML(assetId)}" data-user-content>${escapeHTML(asset.title)}</option>`,
+      )
       .join("");
     quoteSelect.innerHTML =
       marketOptions + (customOptions ? `<optgroup label="دارایی‌های نام‌دار">${customOptions}</optgroup>` : "");
@@ -2885,7 +2890,7 @@ function renderPortfolio() {
     portfolioDonutEl.innerHTML = donutChartMarkup({
       segments: heldAssetIds.map((assetId) => ({
         name: portfolioAssetMeta(assetId, portfolio).title,
-      userContent: Boolean(portfolio.assets?.[assetId] && portfolio.assets[assetId].kind !== "legacy-stock"),
+        userContent: Boolean(portfolio.assets?.[assetId] && portfolio.assets[assetId].kind !== "legacy-stock"),
         value: result.missingPrices.length ? 0 : Number(result.values[assetId].value) || 0,
         color: getAssetColor(assetId),
         percentLabel: result.missingPrices.length ? "—" : formatPercent(result.allocation[assetId] || 0),
@@ -2954,9 +2959,10 @@ function renderPortfolio() {
           const meta = portfolioAssetMeta(transaction.assetId, portfolio);
           const quantity = transaction.quantity === undefined ? transaction.amount : transaction.quantity;
           const targetMeta = portfolioAssetMeta(transaction.targetAssetId, portfolio);
-          const target = transaction.type === "TRANSFER"
-            ? ` ${escapeHTML(text("portfolio.to"))} <span${portfolioAssetUserContentAttribute(transaction.targetAssetId, portfolio)}>${escapeHTML(targetMeta.title)}</span>`
-            : "";
+          const target =
+            transaction.type === "TRANSFER"
+              ? ` ${escapeHTML(text("portfolio.to"))} <span${portfolioAssetUserContentAttribute(transaction.targetAssetId, portfolio)}>${escapeHTML(targetMeta.title)}</span>`
+              : "";
           const displayedAmount =
             transaction.quantity === undefined
               ? formatDisplayMoney(transaction.amount)

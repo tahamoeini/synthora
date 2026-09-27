@@ -16,8 +16,8 @@ This index separates current product guidance from future proposals and historic
 
 ## Proposal
 
-| Document                                                                     | Status        | Use it for                                                                                                                                                                 |
-| ---------------------------------------------------------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Document                                                                     | Status                                     | Use it for                                                                                                      |
+| ---------------------------------------------------------------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
 | [Data persistence, sync, and backup plan](data-persistence-and-sync-plan.md) | Mixed: current slice plus future proposals | The implemented opt-in encrypted snapshot sync and its limits, followed by research and possible future phases. |
 
 ## Historical review records

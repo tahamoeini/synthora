@@ -15,7 +15,9 @@ function runtimeCatalog(locale) {
   const localeIndex = { en: 0, ru: 1, zh: 2 }[locale];
   catalog.phrases = {
     ...catalog.phrases,
-    ...Object.fromEntries(Object.entries(runtimeCopy).map(([source, translations]) => [source, translations[localeIndex]])),
+    ...Object.fromEntries(
+      Object.entries(runtimeCopy).map(([source, translations]) => [source, translations[localeIndex]]),
+    ),
   };
   return catalog;
 }

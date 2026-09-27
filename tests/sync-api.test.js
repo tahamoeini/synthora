@@ -99,9 +99,12 @@ test("sync create and update use atomic revision comparisons", async () => {
   const results = await Promise.all([onRequestPut(first), onRequestPut(second)]);
   assert.deepEqual(results.map((response) => response.status).sort(), [201, 409]);
   const changed = { ...payload, iv: btoa("abcdefghijkl") };
-  assert.deepEqual(await (await onRequestPut(await context(db, tokenA, "PUT", { revision: 1, payload: changed }))).json(), {
-    revision: 2,
-  });
+  assert.deepEqual(
+    await (await onRequestPut(await context(db, tokenA, "PUT", { revision: 1, payload: changed }))).json(),
+    {
+      revision: 2,
+    },
+  );
   const stale = await onRequestPut(await context(db, tokenA, "PUT", { revision: 1, payload }));
   assert.equal(stale.status, 409);
   assert.deepEqual(await stale.json(), { error: "sync-conflict", revision: 2 });
@@ -124,11 +127,13 @@ test("sync rejects malformed requests before storing data", async () => {
     assert.equal(response.status, 400);
   }
   assert.equal(
-    (await onRequestPut(await context(db, tokenA, "PUT", { revision: 0, payload }, { "content-type": "text/plain" }))).status,
+    (await onRequestPut(await context(db, tokenA, "PUT", { revision: 0, payload }, { "content-type": "text/plain" })))
+      .status,
     415,
   );
   assert.equal(
-    (await onRequestPut(await context(db, tokenA, "PUT", { revision: 0, payload }, { "content-length": "360001" }))).status,
+    (await onRequestPut(await context(db, tokenA, "PUT", { revision: 0, payload }, { "content-length": "360001" })))
+      .status,
     413,
   );
   assert.equal((await onRequestGet(await context(db))).status, 404);
@@ -161,7 +166,9 @@ test("sync requires a signed API session and enforces its per-session quota", as
   assert.equal((await onRequestGet({ ...secure, request: unauthenticated })).status, 401);
   const responses = [];
   for (let index = 0; index < 41; index += 1) {
-    const request = new Request(SYNC_URL, { headers: { ...Object.fromEntries(secure.request.headers), "x-synthora-sync-token": tokenA } });
+    const request = new Request(SYNC_URL, {
+      headers: { ...Object.fromEntries(secure.request.headers), "x-synthora-sync-token": tokenA },
+    });
     responses.push(await onRequestGet({ ...secure, request }));
   }
   assert.equal(responses.filter((response) => response.status === 404).length, 40);

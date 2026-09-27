@@ -18,11 +18,11 @@ The migrations store hashed API-session identifiers, request counters, provider 
 
 In the Pages project, open **Settings → Variables and Secrets** and add these as **Secrets**, for each environment that should use the API:
 
-| Secret                       | Required | Purpose                                                                                                                                      |
-| ---------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Secret                       | Required                 | Purpose                                                                                                                                                                                            |
+| ---------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `API_SESSION_SIGNING_SECRET` | For D1 security and sync | HMAC signing key for the HttpOnly session cookie. Use a password manager or secure random generator to create at least 32 random characters. Public-source fallback does not use a session cookie. |
-| `COINGECKO_DEMO_API_KEY`     | Optional | Platform CoinGecko Demo key. A valid user key takes precedence when the request includes one.                                                |
-| `COINMARKETCAP_API_KEY`      | Optional | Platform CoinMarketCap key used for an additional crypto quote source.                                                                       |
+| `COINGECKO_DEMO_API_KEY`     | Optional                 | Platform CoinGecko Demo key. A valid user key takes precedence when the request includes one.                                                                                                      |
+| `COINMARKETCAP_API_KEY`      | Optional                 | Platform CoinMarketCap key used for an additional crypto quote source.                                                                                                                             |
 
 Do not place these values in `app.js`, HTML, source control, build variables exposed to the browser, a URL, or a support screenshot. Pages Functions read the secrets from the server-side environment. Redeploy after adding or rotating a secret.
 

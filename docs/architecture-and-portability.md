@@ -29,7 +29,7 @@ flowchart LR
 | src/market/                                                          | Shared instrument catalog, observed-history processing, cache age, and quote reconciliation           |
 | src/ui/                                                              | UI state, navigation, components, localization, locale/display preferences, and chart helpers         |
 | functions/api/market.js, history.js, inflation.js, fx.js, session.js | Server-side provider access and same-origin JSON routes                                               |
-| functions/api/sync.js, src/sync.js                                | Optional manual sync of client-encrypted snapshots using a user-held recovery key                      |
+| functions/api/sync.js, src/sync.js                                   | Optional manual sync of client-encrypted snapshots using a user-held recovery key                     |
 | functions/api/_security.js                                           | Signed browser-session handling, route quotas, provider request limits, and cached provider responses |
 | functions/api/migrations/                                            | D1 schema migrations; apply in numeric order                                                          |
 | tests/                                                               | Node tests for calculations, data contracts, API routes, portfolio records, and UI helpers            |

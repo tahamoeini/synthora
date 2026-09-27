@@ -226,8 +226,7 @@ export async function consumeRouteQuota(context, route, { allowPublicWhenUnconfi
   const request = context.request;
   if (!request || !originAllowed(request)) return { error: jsonResponse({ error: "same-origin-required" }, 403) };
   const db = databaseFor(context.env);
-  if (allowPublicWhenUnconfigured && (!secretFor(context.env) || !db))
-    return consumeLocalPublicQuota(request, route);
+  if (allowPublicWhenUnconfigured && (!secretFor(context.env) || !db)) return consumeLocalPublicQuota(request, route);
   const session = await readSession(request, context.env);
   if (session.error) return { error: session.error };
   if (!session.sessionHash) return { error: jsonResponse({ error: "session-required" }, 401) };

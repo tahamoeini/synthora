@@ -9,9 +9,12 @@ const app = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 function declarations(selector) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const expression = new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, "gu");
-  const match = [...css.matchAll(expression)].find((candidate) => candidate[1].includes("--bg")) || css.match(expression);
+  const match =
+    [...css.matchAll(expression)].find((candidate) => candidate[1].includes("--bg")) || css.match(expression);
   assert.ok(match, `missing CSS selector ${selector}`);
-  return Object.fromEntries([...match[1].matchAll(/(--[\w-]+)\s*:\s*([^;]+);/gu)].map((entry) => [entry[1], entry[2].trim()]));
+  return Object.fromEntries(
+    [...match[1].matchAll(/(--[\w-]+)\s*:\s*([^;]+);/gu)].map((entry) => [entry[1], entry[2].trim()]),
+  );
 }
 
 function relativeLuminance(color) {

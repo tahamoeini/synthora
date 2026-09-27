@@ -1730,7 +1730,9 @@ html[dir="ltr"] .primary-button b {
   border-radius: 10px;
   background: var(--surface-muted);
   color: var(--ink);
-  font: 700 0.95rem/1.7 ui-monospace, monospace;
+  font:
+    700 0.95rem/1.7 ui-monospace,
+    monospace;
   white-space: pre-wrap;
   user-select: all;
 }

@@ -16,15 +16,15 @@ The product is local-first: personal profile, saved plans, portfolio ledger, and
 
 ## Code map
 
-| Area                        | Main files                                             | Responsibility                                                                                                  |
-| --------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| Browser shell and workflows | index.html, app.js, styles.css                         | Views, browser state, rendering, forms, local storage, and same-origin API calls                                |
-| Planning and analysis       | src/engine.js, src/analysis.js, src/analysis.worker.js | Pure financial calculations and browser Web Worker task routing                                                 |
-| Portfolio and saved history | src/portfolio.js, src/history.js                       | Versioned transaction ledger, valuation, validation, and JSON import/export                                     |
-| Market and UI modules       | src/market/, src/ui/                                   | Instrument catalog, observed-history preparation, quote helpers, navigation, state, and SVG charts              |
+| Area                        | Main files                                             | Responsibility                                                                                                                                    |
+| --------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Browser shell and workflows | index.html, app.js, styles.css                         | Views, browser state, rendering, forms, local storage, and same-origin API calls                                                                  |
+| Planning and analysis       | src/engine.js, src/analysis.js, src/analysis.worker.js | Pure financial calculations and browser Web Worker task routing                                                                                   |
+| Portfolio and saved history | src/portfolio.js, src/history.js                       | Versioned transaction ledger, valuation, validation, and JSON import/export                                                                       |
+| Market and UI modules       | src/market/, src/ui/                                   | Instrument catalog, observed-history preparation, quote helpers, navigation, state, and SVG charts                                                |
 | Server routes               | functions/api/                                         | Cloudflare Pages Functions for session security, market data, history, inflation, FX, provider coordination, and optional encrypted snapshot sync |
-| D1 schema                   | functions/api/migrations/                              | API usage migrations plus the separate optional `USER_DATA_DB` sync schema                                     |
-| Copy and checks             | content/*.json, tests/, package.json                   | Persian base copy, checked visible-copy catalogs, runtime messages, Node tests, formatting, lint, and syntax checks |
+| D1 schema                   | functions/api/migrations/                              | API usage migrations plus the separate optional `USER_DATA_DB` sync schema                                                                        |
+| Copy and checks             | content/*.json, tests/, package.json                   | Persian base copy, checked visible-copy catalogs, runtime messages, Node tests, formatting, lint, and syntax checks                               |
 
 ## Preserve these product and data rules
 
