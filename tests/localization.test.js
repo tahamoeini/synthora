@@ -52,7 +52,11 @@ test("visible page copy and accessibility text translate without Persian remnant
   for (const locale of ["en", "ru", "zh"]) {
     const catalog = createLocalizedCatalog(readCatalog("fa"), readCatalog(locale));
     for (const value of visible)
-      assert.doesNotMatch(translateCopy(value, catalog.phrases), /[\u0600-\u06ff]/u, locale + " misses " + value.trim());
+      assert.doesNotMatch(
+        translateCopy(value, catalog.phrases),
+        /[\u0600-\u06ff]/u,
+        locale + " misses " + value.trim(),
+      );
   }
 });
 

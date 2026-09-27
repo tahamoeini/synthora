@@ -1296,7 +1296,7 @@ function renderDashboardPerformance() {
     emptyLabel: result.transactions.length
       ? "تاریخچه قیمت کافی برای رسم این روند نیست."
       : "با ثبت دارایی و دریافت قیمت تاریخی، روند اینجا نمایش داده می‌شود.",
-    valueLabel: formatToman,
+    valueLabel: formatDisplayMoney,
     height: 280,
   });
 }
@@ -2065,7 +2065,7 @@ function renderPortfolioChart(series, portfolio, inflationRate) {
     ],
     ariaLabel: text("portfolio.chart"),
     emptyLabel: text("portfolio.missingPrices"),
-    valueLabel: formatToman,
+    valueLabel: formatDisplayMoney,
     height: 260,
   });
 }
@@ -2604,7 +2604,7 @@ function renderPortfolio() {
       items: monthlyContributions,
       ariaLabel: text("portfolio.contributionChart", "واریزهای ثبت‌شده به تفکیک ماه، بر پایه تومان"),
       emptyLabel: text("portfolio.noContributionHistory", "داده ثبت‌شده‌ای برای نمایش واریز ماهانه نیست."),
-      valueLabel: (value) => formatToman(value),
+      valueLabel: (value) => formatDisplayMoney(value),
     });
   }
   renderPortfolioHoldings(portfolio, result, latestPlanSnapshot(), asOf);

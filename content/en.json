@@ -223,7 +223,7 @@
     "noAudit": "No changes have been recorded.",
     "noStocks": "No stock holdings have been added.",
     "chart": "Portfolio value over time",
-    "chartNote": "Historical performance remains on a Toman basis.",
+    "chartNote": "Calculations and historical returns remain Toman-based; chart values use the selected display currency at the current reference rate. No synthetic history is added.",
     "startsToday": "Tracking starts today.",
     "transactionTypes": {
       "OPENING": "Opening balance",
@@ -256,7 +256,7 @@
     "fxUnavailableNote": "The conversion rate is unavailable; values remain in Toman. Ledger values and historical returns are unchanged.",
     "fxStaleNote": "The conversion rate is stale; converted values use the dated rate shown.",
     "fxAsOf": "Rate date",
-    "contributionChart": "Recorded monthly contributions, Toman basis",
+    "contributionChart": "Recorded monthly contributions in the selected display currency",
     "noContributionHistory": "No recorded contributions are available for this chart.",
     "holdingCount": "holdings",
     "noTarget": "No target set",

@@ -223,7 +223,7 @@
     "noAudit": "尚未记录变更。",
     "noStocks": "尚未添加股票持仓。",
     "chart": "投资组合价值变化",
-    "chartNote": "历史收益仍以托曼为计算口径。",
+    "chartNote": "计算和历史收益仍以托曼为基础；图表数值按当前参考汇率换算为所选显示货币。不添加虚构的历史数据。",
     "startsToday": "从今天开始跟踪。",
     "transactionTypes": {
       "OPENING": "期初余额",
@@ -256,7 +256,7 @@
     "fxUnavailableNote": "换算汇率不可用；金额以托曼显示。账本金额和历史收益不会改变。",
     "fxStaleNote": "参考汇率已过期；换算金额使用所示日期的汇率。",
     "fxAsOf": "汇率日期",
-    "contributionChart": "按月记录的投入，托曼口径",
+    "contributionChart": "按月记录的投入，以所选显示货币显示",
     "noContributionHistory": "没有可用于此图表的投入记录。",
     "holdingCount": "项持仓",
     "noTarget": "未设置目标",
