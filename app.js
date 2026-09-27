@@ -12,7 +12,7 @@ import {
   portfolioFromHistory,
   recommendAllocation,
 } from "./src/engine.js";
-import { createHistoryExport, mergeHistory, parseHistoryExport } from "./src/history.js";
+import { createHistoryExport, mergeHistory, normalizeHistoryEntries, parseHistoryExport } from "./src/history.js";
 import { writeJsonBatch } from "./src/ui/atomic-storage.js";
 import {
   PORTFOLIO_ASSETS,
@@ -27,6 +27,7 @@ import {
   portfolioContributionSeries,
   portfolioCostBasis,
   portfolioSeries,
+  validateImportedPortfolio,
 } from "./src/portfolio.js";
 import {
   CORE_PLAN_ASSET_KEYS,
@@ -58,6 +59,7 @@ import {
 import { createLocalizedCatalog, translateCopy } from "./src/ui/localization.js";
 import { createNavigationController } from "./src/ui/navigation.js";
 import { createAppStore } from "./src/ui/state.js";
+import { decryptSnapshot, encryptSnapshot, generateRecoveryKey, prepareSyncCredentials } from "./src/sync.js";
 
 const HISTORY_KEY = "investment-plan-history-v4";
 const MARKET_CACHE_KEY = "investment-plan-market-cache-v3";
@@ -72,6 +74,7 @@ const HISTORY_MARKET_CACHE_KEY = "synthora-history-market-cache-v1";
 const HISTORY_LIMIT = 60;
 const MARKET_REQUEST_TIMEOUT_MS = 12000;
 const CURRENCY_MIGRATION_KEY = "invest-consult-currency-toman-v1";
+const UI_PREFERENCES_KEY = "synthora-ui-preferences-v1";
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -141,6 +144,8 @@ let modelSettings;
 let providerApiKey = "";
 let providerKeyStorageMode = "session";
 let apiSessionReady = null;
+let syncCredentials = null;
+let syncRevision = null;
 let historyComparisonMode = "return";
 let historyComparisonCurrency = "TOMAN";
 let historyCustomBounds = null;
@@ -183,6 +188,7 @@ function translateVisibleCopy(root = document.body) {
   const elements =
     root.nodeType === Node.ELEMENT_NODE ? [root, ...root.querySelectorAll("*")] : [...root.querySelectorAll("*")];
   elements.forEach((element) => {
+    if (element.closest?.("[data-user-content]")) return;
     const states = originalAttributesByElement.get(element) || {};
     ["placeholder", "title", "aria-label"].forEach((name) => {
       if (!element.hasAttribute(name)) return;
@@ -455,6 +461,12 @@ function currentLocale() {
   return LOCALES[uiPreferences?.locale] || LOCALES.fa;
 }
 
+function listSeparator() {
+  if (uiPreferences.locale === "fa") return "، ";
+  if (uiPreferences.locale === "zh") return "、";
+  return ", ";
+}
+
 function normalizeDigits(value) {
   return String(value || "")
     .replace(/[\u06f0-\u06f9]/g, (digit) =>
@@ -709,13 +721,10 @@ async function ensureApiSession() {
       { method: "POST", credentials: "same-origin", cache: "no-store" },
       8000,
     )
-      .then((response) => {
-        if (!response.ok) throw new Error("session-unavailable");
-        return true;
-      })
-      .catch((error) => {
+      .then((response) => response.ok)
+      .catch(() => {
         apiSessionReady = null;
-        throw error;
+        return false;
       });
   }
   return apiSessionReady;
@@ -810,6 +819,308 @@ function clearProviderApiKey() {
   if (status) {
     status.textContent = "کلید از حافظه‌ی برنامه پاک شد.";
     status.className = "transfer-status transfer-success";
+  }
+}
+
+function setSyncStatus(message, type = "neutral") {
+  const status = $("#sync-status");
+  if (!status) return;
+  status.textContent = message;
+  status.className = `transfer-status transfer-${type}`;
+}
+
+function updateSyncControls() {
+  const connected = Boolean(syncCredentials);
+  ["#sync-upload", "#sync-restore", "#sync-delete", "#sync-disconnect"].forEach((selector) => {
+    const button = $(selector);
+    if (button) button.disabled = !connected;
+  });
+  ["#sync-create", "#sync-connect", "#sync-recovery-key"].forEach((selector) => {
+    const control = $(selector);
+    if (control) control.disabled = connected;
+  });
+}
+
+function currentSyncSnapshot() {
+  if (storageWarning) throw new Error("sync.localDataUnavailable");
+  const profile = readJson(PROFILE_KEY, null);
+  if (profile !== null && (typeof profile !== "object" || Array.isArray(profile)))
+    throw new Error("sync.localDataUnavailable");
+  const snapshot = {
+    profile,
+    history: readHistory(),
+    portfolio: readPortfolio(),
+    modelSettings: modelSettings || defaultModelSettings(),
+    preferences: {
+      locale: uiPreferences.locale,
+      currency: uiPreferences.currency,
+      theme: uiPreferences.theme,
+    },
+  };
+  if (storageWarning) throw new Error("sync.localDataUnavailable");
+  return snapshot;
+}
+
+function validateSyncRecords(records) {
+  const writes = [];
+  if (Object.hasOwn(records, "profile")) {
+    if (records.profile !== null && (typeof records.profile !== "object" || Array.isArray(records.profile)))
+      throw new Error("sync.invalidSnapshot");
+    writes.push([PROFILE_KEY, records.profile || {}]);
+  }
+  if (Object.hasOwn(records, "history")) {
+    if (!Array.isArray(records.history) || records.history.length > HISTORY_LIMIT)
+      throw new Error("sync.invalidSnapshot");
+    const history = normalizeHistoryEntries(records.history, HISTORY_LIMIT);
+    if (history.length !== records.history.length) throw new Error("sync.invalidSnapshot");
+    writes.push([HISTORY_KEY, history], ["investment-plan-history-v3", []]);
+  }
+  if (Object.hasOwn(records, "portfolio")) {
+    const validated = validateImportedPortfolio(records.portfolio);
+    if (!validated.valid) throw new Error("sync.invalidSnapshot");
+    writes.push([PORTFOLIO_KEY, validated.portfolio]);
+  }
+  if (Object.hasOwn(records, "modelSettings")) {
+    if (!records.modelSettings || typeof records.modelSettings !== "object" || Array.isArray(records.modelSettings))
+      throw new Error("sync.invalidSnapshot");
+    writes.push([SETTINGS_KEY, normalizeModelSettings(records.modelSettings)]);
+  }
+  if (Object.hasOwn(records, "preferences")) {
+    const preferences = records.preferences;
+    if (
+      !preferences ||
+      typeof preferences !== "object" ||
+      Array.isArray(preferences) ||
+      Object.keys(preferences).some((key) => !["locale", "currency", "theme"].includes(key))
+    )
+      throw new Error("sync.invalidSnapshot");
+    const locale = ["fa", "en", "ru", "zh"].includes(preferences?.locale) ? preferences.locale : null;
+    const currency = [null, "TOMAN", "USD", "RUB", "CNY"].includes(preferences?.currency)
+      ? preferences.currency
+      : null;
+    const theme = ["system", "light", "dark"].includes(preferences?.theme) ? preferences.theme : null;
+    if (!locale || currency === null && preferences.currency !== null || !theme)
+      throw new Error("sync.invalidSnapshot");
+    writes.push([UI_PREFERENCES_KEY, { locale, currency, theme }]);
+  }
+  return writes;
+}
+
+async function requestSync(method, credentials = syncCredentials, body = undefined) {
+  if (!credentials?.authToken) throw new Error("sync.notConnected");
+  await ensureApiSession();
+  const headers = { "X-Synthora-Sync-Token": credentials.authToken };
+  const options = { method, credentials: "same-origin", cache: "no-store", headers };
+  if (body !== undefined) {
+    headers["content-type"] = "application/json";
+    options.body = JSON.stringify(body);
+  }
+  const response = await fetchWithTimeout("/api/sync", options, 20000);
+  const data = await response.json().catch(() => ({}));
+  return { response, data };
+}
+
+function syncErrorMessage(error) {
+  const apiError = error?.data?.error;
+  if (apiError === "sync-storage-not-configured" || apiError === "api-security-not-configured")
+    return text("sync.unavailable");
+  if (apiError === "rate-limit-exceeded") return text("sync.rateLimited");
+  if (apiError === "sync-conflict") return text("sync.conflict");
+  if (apiError === "session-required" || apiError === "session-limit-unavailable") return text("sync.sessionUnavailable");
+  const localError = typeof error?.message === "string" ? error.message.replace(/^sync\./u, "") : "";
+  if (localError && copy?.sync?.[localError]) return text(`sync.${localError}`);
+  return text("sync.requestFailed");
+}
+
+async function createEncryptedSync() {
+  if (!window.confirm(text("sync.createConfirm"))) return;
+  try {
+    const snapshot = currentSyncSnapshot();
+    const recoveryKey = await generateRecoveryKey();
+    const credentials = await prepareSyncCredentials(recoveryKey);
+    const payload = await encryptSnapshot(snapshot, credentials);
+    const { response, data } = await requestSync("PUT", credentials, { revision: 0, payload });
+    if (!response.ok) throw Object.assign(new Error("sync.requestFailed"), { data });
+    syncCredentials = credentials;
+    syncRevision = Number(data.revision);
+    const output = $("#sync-recovery-output");
+    if (output) {
+      output.textContent = `${text("sync.recoveryKeyLabel")}\n${recoveryKey}\n\n${text("sync.recoveryKeyWarning")}`;
+      output.hidden = false;
+    }
+    $("#sync-copy-recovery")?.removeAttribute("hidden");
+    setSyncStatus(text("sync.created"), "success");
+    updateSyncControls();
+  } catch (error) {
+    setSyncStatus(syncErrorMessage(error), "warning");
+  }
+}
+
+async function connectEncryptedSync() {
+  const input = $("#sync-recovery-key");
+  const recoveryKey = String(input?.value || "").trim();
+  if (input) input.value = "";
+  $("#sync-recovery-output").hidden = true;
+  $("#sync-copy-recovery")?.setAttribute("hidden", "");
+  if (!recoveryKey) {
+    setSyncStatus(text("sync.keyRequired"), "warning");
+    return;
+  }
+  let credentials;
+  try {
+    credentials = await prepareSyncCredentials(recoveryKey);
+  } catch {
+    setSyncStatus(text("sync.invalidRecoveryKey"), "warning");
+    return;
+  }
+  try {
+    const { response, data } = await requestSync("GET", credentials);
+    if (response.status === 404 && data.error === "sync-deleted") {
+      setSyncStatus(text("sync.deleted"), "warning");
+      return;
+    }
+    if (response.status === 404 && data.error === "sync-not-found") {
+      syncCredentials = credentials;
+      syncRevision = 0;
+      setSyncStatus(text("sync.noRemoteCopy"), "neutral");
+      updateSyncControls();
+      return;
+    }
+    if (!response.ok) throw Object.assign(new Error("sync.requestFailed"), { data });
+    const records = await decryptSnapshot(data.payload, credentials);
+    validateSyncRecords(records);
+    syncCredentials = credentials;
+    syncRevision = Number(data.revision);
+    setSyncStatus(text("sync.connected"), "success");
+    updateSyncControls();
+  } catch (error) {
+    setSyncStatus(syncErrorMessage(error), "warning");
+  }
+}
+
+async function uploadLocalSyncSnapshot() {
+  try {
+    const { response: latestResponse, data: latest } = await requestSync("GET");
+    if (latestResponse.status === 404 && latest.error === "sync-deleted") {
+      setSyncStatus(text("sync.deleted"), "warning");
+      return;
+    }
+    if (latestResponse.status === 404 && latest.error === "sync-not-found") syncRevision = 0;
+    else if (latestResponse.ok) {
+      if (syncRevision !== Number(latest.revision)) {
+        setSyncStatus(text("sync.remoteChanged"), "warning");
+        return;
+      }
+      try {
+        validateSyncRecords(await decryptSnapshot(latest.payload, syncCredentials));
+      } catch {
+        setSyncStatus(text("sync.invalidSnapshot"), "warning");
+        return;
+      }
+    } else throw Object.assign(new Error("sync.requestFailed"), { data: latest });
+    const payload = await encryptSnapshot(currentSyncSnapshot(), syncCredentials);
+    const { response, data } = await requestSync("PUT", syncCredentials, { revision: syncRevision, payload });
+    if (response.status === 409) {
+      setSyncStatus(text("sync.conflict"), "warning");
+      return;
+    }
+    if (!response.ok) throw Object.assign(new Error("sync.requestFailed"), { data });
+    syncRevision = Number(data.revision);
+    setSyncStatus(text("sync.uploaded"), "success");
+  } catch (error) {
+    setSyncStatus(syncErrorMessage(error), "warning");
+  }
+}
+
+async function restoreRemoteSyncSnapshot() {
+  try {
+    const { response, data } = await requestSync("GET");
+    if (response.status === 404 && data.error === "sync-not-found") {
+      syncRevision = 0;
+      setSyncStatus(text("sync.noRemoteCopy"), "neutral");
+      return;
+    }
+    if (response.status === 404 && data.error === "sync-deleted") {
+      setSyncStatus(text("sync.deleted"), "warning");
+      return;
+    }
+    if (!response.ok) throw Object.assign(new Error("sync.requestFailed"), { data });
+    const records = await decryptSnapshot(data.payload, syncCredentials);
+    const writes = validateSyncRecords(records);
+    if (!writes.length) throw new Error("sync.invalidSnapshot");
+    if (!window.confirm(text("sync.restoreConfirm"))) return;
+    if (!writeJsonBatch(localStorage, writes)) throw new Error("sync.localWriteFailed");
+    syncRevision = Number(data.revision);
+    modelSettings = loadModelSettings();
+    uiPreferences = readUiPreferences();
+    document.querySelector("#plan-form")?.reset();
+    restoreProfile();
+    applyUiPreferences(uiPreferences);
+    syncUiPreferenceControls();
+    await loadCopy();
+    renderSettingsAssumptions();
+    applyModelSettingsToSimulation();
+    renderHistory();
+    renderPortfolio();
+    renderDashboard();
+    renderMarket(liveMarket, lastKnownMarket);
+    setSyncStatus(text("sync.restored"), "success");
+  } catch (error) {
+    setSyncStatus(error?.message === "sync.localWriteFailed" ? text("sync.localWriteFailed") : syncErrorMessage(error), "warning");
+  }
+}
+
+async function deleteRemoteSyncSnapshot() {
+  if (!window.confirm(text("sync.deleteConfirm"))) return;
+  try {
+    const { response: latestResponse, data: latest } = await requestSync("GET");
+    if (latestResponse.status === 404 && latest.error === "sync-deleted") {
+      syncCredentials = null;
+      syncRevision = null;
+      updateSyncControls();
+      setSyncStatus(text("sync.deleted"), "success");
+      return;
+    }
+    if (latestResponse.status === 404 && latest.error === "sync-not-found") {
+      syncRevision = 0;
+      setSyncStatus(text("sync.noRemoteCopy"), "neutral");
+      return;
+    }
+    if (!latestResponse.ok) throw Object.assign(new Error("sync.requestFailed"), { data: latest });
+    const { response, data } = await requestSync("DELETE", syncCredentials, { revision: Number(latest.revision) });
+    if (response.status === 409) {
+      setSyncStatus(text("sync.conflict"), "warning");
+      return;
+    }
+    if (!response.ok) throw Object.assign(new Error("sync.requestFailed"), { data });
+    syncCredentials = null;
+    syncRevision = null;
+    $("#sync-recovery-output").hidden = true;
+    $("#sync-copy-recovery")?.setAttribute("hidden", "");
+    updateSyncControls();
+    setSyncStatus(text("sync.deleted"), "success");
+  } catch (error) {
+    setSyncStatus(syncErrorMessage(error), "warning");
+  }
+}
+
+function disconnectEncryptedSync() {
+  syncCredentials = null;
+  syncRevision = null;
+  $("#sync-recovery-output").hidden = true;
+  $("#sync-copy-recovery")?.setAttribute("hidden", "");
+  updateSyncControls();
+  setSyncStatus(text("sync.disconnected"), "neutral");
+}
+
+async function copyRecoveryKey() {
+  const key = $("#sync-recovery-output")?.textContent.match(/SYN1(?:-[0-9A-F]{8}){9}/)?.[0];
+  if (!key) return;
+  try {
+    await navigator.clipboard.writeText(key);
+    setSyncStatus(text("sync.keyCopied"), "success");
+  } catch {
+    setSyncStatus(text("sync.copyUnavailable"), "warning");
   }
 }
 
@@ -1325,6 +1636,7 @@ function renderDashboardAllocation(result, plan, portfolio) {
   chart.innerHTML = donutChartMarkup({
     segments: actual.map((item) => ({
       name: portfolioAssetMeta(item.assetId, portfolio).title,
+      userContent: Boolean(portfolio.assets?.[item.assetId] && portfolio.assets[item.assetId].kind !== "legacy-stock"),
       value: item.value,
       color: getAssetColor(item.assetId),
       percentLabel: formatPercent(item.percent),
@@ -1380,7 +1692,7 @@ function renderDashboardAllocation(result, plan, portfolio) {
       const delta = hasTarget ? actualPercent - targetPercent : null;
       const warning = hasTarget && Math.abs(delta) >= 10;
       const meta = portfolioAssetMeta(assetId, portfolio);
-      return `<div class="allocation-compare-row"><div><span class="asset-dot ${escapeHTML(meta.dotClass)}"></span><strong>${escapeHTML(meta.title)}</strong></div><span>${complete ? formatPercent(actualPercent) : "—"}</span><span>${hasTarget ? formatPercent(targetPercent) : "—"}</span><small class="${warning ? "allocation-warning" : ""}">${hasTarget ? `${delta > 0 ? "+" : ""}${formatPercent(delta)} ${warning ? "· نیازمند توجه" : ""}` : "هدف ثبت نشده"}</small></div>`;
+      return `<div class="allocation-compare-row"><div><span class="asset-dot ${escapeHTML(meta.dotClass)}"></span><strong${portfolioAssetUserContentAttribute(assetId, portfolio)}>${escapeHTML(meta.title)}</strong></div><span>${complete ? formatPercent(actualPercent) : "—"}</span><span>${hasTarget ? formatPercent(targetPercent) : "—"}</span><small class="${warning ? "allocation-warning" : ""}">${hasTarget ? `${delta > 0 ? "+" : ""}${formatPercent(delta)} ${warning ? "· نیازمند توجه" : ""}` : "هدف ثبت نشده"}</small></div>`;
     })
     .join("");
   list.innerHTML = rows || `<div class="empty-state">با ثبت پرتفوی یا ساخت برنامه، مقایسه نمایش داده می‌شود.</div>`;
@@ -1760,6 +2072,11 @@ function portfolioAssetMeta(assetId, portfolio = null) {
   return assetMeta(assetId);
 }
 
+function portfolioAssetUserContentAttribute(assetId, portfolio = null) {
+  const custom = portfolio?.assets?.[assetId];
+  return custom && custom.kind !== "legacy-stock" ? ' data-user-content=""' : "";
+}
+
 function portfolioUnitLabel(assetId, unit) {
   if (unit === "gram") return "گرم";
   if (unit === "TOMAN" || unit === "IRR") return text("currencyUnit");
@@ -1960,7 +2277,9 @@ function renderPortfolioHoldings(portfolio, result, plan, asOf) {
           const pnlClass = row.profitLoss === null ? "muted" : row.profitLoss >= 0 ? "positive" : "negative";
           const pnl = row.profitLoss === null ? text("portfolio.unavailable", "—") : formatDisplayMoney(row.profitLoss);
           return (
-            '<tr><th scope="row"><span class="holdings-asset-name"><span class="asset-dot ' +
+            '<tr><th scope="row"><span class="holdings-asset-name"' +
+            portfolioAssetUserContentAttribute(row.assetId, portfolio) +
+            '><span class="asset-dot ' +
             escapeHTML(meta.dotClass) +
             '"></span>' +
             escapeHTML(meta.title) +
@@ -2082,7 +2401,7 @@ function populatePortfolioAssetOptions() {
   const options = assetIds(portfolio)
     .map((assetId) => {
       const meta = portfolioAssetMeta(assetId, portfolio);
-      return `<option value="${escapeHTML(assetId)}">${escapeHTML(meta.title)}</option>`;
+      return `<option value="${escapeHTML(assetId)}"${portfolioAssetUserContentAttribute(assetId, portfolio)}>${escapeHTML(meta.title)}</option>`;
     })
     .join("");
   [$("#advanced-asset"), $("#advanced-target-asset")].forEach((select) => {
@@ -2105,7 +2424,7 @@ function populatePortfolioAssetOptions() {
     const current = marketSelect.value;
     const optionMarkup = (assetId) => {
       const meta = portfolioAssetMeta(assetId, portfolio);
-      return `<option value="${escapeHTML(assetId)}">${escapeHTML(meta.title)}</option>`;
+      return `<option value="${escapeHTML(assetId)}"${portfolioAssetUserContentAttribute(assetId, portfolio)}>${escapeHTML(meta.title)}</option>`;
     };
     const marketOptions = supported
       .filter((assetId) => marketIds.includes(assetId))
@@ -2144,7 +2463,7 @@ function populatePortfolioAssetOptions() {
       .join("");
     const customAssets = Object.entries(portfolio.assets || {}).filter(([assetId]) => assetId.startsWith("custom:"));
     const customOptions = customAssets
-      .map(([assetId, asset]) => `<option value="${escapeHTML(assetId)}">${escapeHTML(asset.title)}</option>`)
+      .map(([assetId, asset]) => `<option value="${escapeHTML(assetId)}" data-user-content>${escapeHTML(asset.title)}</option>`)
       .join("");
     quoteSelect.innerHTML =
       marketOptions + (customOptions ? `<optgroup label="دارایی‌های نام‌دار">${customOptions}</optgroup>` : "");
@@ -2557,7 +2876,7 @@ function renderPortfolio() {
       const quoteNote = item.priceObservedAt
         ? `${item.manualPrice ? "قیمت دستی" : "منبع بازار"} · ${formatDateTime(item.priceObservedAt)} · ${freshnessLabel(item.priceObservedAt)}`
         : item.priceSource || "زمان مشاهده نامشخص";
-      return `<button type="button" class="allocation-row allocation-row-button" data-portfolio-asset="${escapeHTML(assetId)}"><span class="allocation-name"><span class="asset-dot ${escapeHTML(meta.dotClass)}"></span><span><strong>${escapeHTML(meta.title)}</strong><small>${escapeHTML(formatHoldingQuantity(assetId, item.quantity, item.unit))} · ${escapeHTML(quoteNote)}</small></span></span><span class="allocation-numbers"><strong>${item.value === null || result.missingPrices.length ? "—" : formatPercent(result.allocation[assetId])}</strong><small>${escapeHTML(portfolioValueLabel(item.value))}</small></span></button>`;
+      return `<button type="button" class="allocation-row allocation-row-button" data-portfolio-asset="${escapeHTML(assetId)}"><span class="allocation-name"><span class="asset-dot ${escapeHTML(meta.dotClass)}"></span><span><strong${portfolioAssetUserContentAttribute(assetId, portfolio)}>${escapeHTML(meta.title)}</strong><small>${escapeHTML(formatHoldingQuantity(assetId, item.quantity, item.unit))} · ${escapeHTML(quoteNote)}</small></span></span><span class="allocation-numbers"><strong>${item.value === null || result.missingPrices.length ? "—" : formatPercent(result.allocation[assetId])}</strong><small>${escapeHTML(portfolioValueLabel(item.value))}</small></span></button>`;
     })
     .join("");
   portfolioAllocationEl.innerHTML =
@@ -2566,6 +2885,7 @@ function renderPortfolio() {
     portfolioDonutEl.innerHTML = donutChartMarkup({
       segments: heldAssetIds.map((assetId) => ({
         name: portfolioAssetMeta(assetId, portfolio).title,
+      userContent: Boolean(portfolio.assets?.[assetId] && portfolio.assets[assetId].kind !== "legacy-stock"),
         value: result.missingPrices.length ? 0 : Number(result.values[assetId].value) || 0,
         color: getAssetColor(assetId),
         percentLabel: result.missingPrices.length ? "—" : formatPercent(result.allocation[assetId] || 0),
@@ -2579,7 +2899,12 @@ function renderPortfolio() {
   const quality = $("#portfolio-data-quality");
   if (!hasTransactions) quality.textContent = text("portfolio.empty");
   else if (result.missingPrices.length)
-    quality.textContent = `${text("portfolio.missingPrices")} ${result.missingPrices.map((assetId) => portfolioAssetMeta(assetId, portfolio).title).join(", ")}`;
+    quality.innerHTML = `${escapeHTML(text("portfolio.missingPrices"))} ${result.missingPrices
+      .map((assetId) => {
+        const title = portfolioAssetMeta(assetId, portfolio).title;
+        return `<span${portfolioAssetUserContentAttribute(assetId, portfolio)}>${escapeHTML(title)}</span>`;
+      })
+      .join(escapeHTML(listSeparator()))}`;
   else {
     const manualCount = heldAssetIds.filter((assetId) => result.values[assetId]?.manualPrice).length;
     quality.textContent = manualCount
@@ -2628,15 +2953,15 @@ function renderPortfolio() {
           const type = text(`portfolio.transactionTypes.${transaction.type}`, transaction.type);
           const meta = portfolioAssetMeta(transaction.assetId, portfolio);
           const quantity = transaction.quantity === undefined ? transaction.amount : transaction.quantity;
-          const target =
-            transaction.type === "TRANSFER"
-              ? ` ${text("portfolio.to")} ${escapeHTML(portfolioAssetMeta(transaction.targetAssetId, portfolio).title)}`
-              : "";
+          const targetMeta = portfolioAssetMeta(transaction.targetAssetId, portfolio);
+          const target = transaction.type === "TRANSFER"
+            ? ` ${escapeHTML(text("portfolio.to"))} <span${portfolioAssetUserContentAttribute(transaction.targetAssetId, portfolio)}>${escapeHTML(targetMeta.title)}</span>`
+            : "";
           const displayedAmount =
             transaction.quantity === undefined
               ? formatDisplayMoney(transaction.amount)
               : formatHoldingQuantity(transaction.assetId, quantity, meta.unit);
-          return `<div class="ledger-row"><div><strong>${escapeHTML(type)}</strong><small>${escapeHTML(formatDateTime(transaction.date))} ${escapeHTML(text("history.separator"))} ${escapeHTML(meta.title)}${target}</small></div><div><strong>${escapeHTML(displayedAmount)}</strong></div></div>`;
+          return `<div class="ledger-row"><div><strong>${escapeHTML(type)}</strong><small>${escapeHTML(formatDateTime(transaction.date))} ${escapeHTML(text("history.separator"))} <span${portfolioAssetUserContentAttribute(transaction.assetId, portfolio)}>${escapeHTML(meta.title)}</span>${target}</small></div><div><strong>${escapeHTML(displayedAmount)}</strong></div></div>`;
         })
         .join("")
     : `<div class="empty-state">${escapeHTML(text("portfolio.noLedger"))}</div>`;
@@ -2688,7 +3013,7 @@ function renderStockList(portfolio, result) {
           const item = result.values[assetId];
           const value =
             item && Number.isFinite(item.value) ? portfolioValueLabel(item.value) : text("portfolio.unavailable");
-          return `<div class="stock-row"><div><strong>${escapeHTML(asset.title)}</strong><small>${escapeHTML(text("portfolio.stockAccount"))}</small></div><div><strong>${escapeHTML(value)}</strong><small>${escapeHTML(text("portfolio.editByReenter"))}</small></div></div>`;
+          return `<div class="stock-row"><div><strong data-user-content>${escapeHTML(asset.title)}</strong><small>${escapeHTML(text("portfolio.stockAccount"))}</small></div><div><strong>${escapeHTML(value)}</strong><small>${escapeHTML(text("portfolio.editByReenter"))}</small></div></div>`;
         })
         .join("")
     : `<div class="empty-state">${escapeHTML(text("portfolio.noStocks"))}</div>`;
@@ -2943,7 +3268,7 @@ function renderBacktest(result) {
   if (!result || !result.available) {
     const missing = result?.unobservedAssets || [];
     const missingText = missing.length
-      ? ` داده‌ی مشاهده‌شده برای ${missing.map((asset) => (asset === "fixed" ? "درآمد ثابت" : assetMeta(asset).title)).join("، ")} وجود ندارد.`
+      ? ` داده‌ی مشاهده‌شده برای ${missing.map((asset) => (asset === "fixed" ? "درآمد ثابت" : assetMeta(asset).title)).join(listSeparator())} وجود ندارد.`
       : "";
     const observed = result?.observations
       ? ` ${formatIRR(result.observations)} ماه داده‌ی ماهانه‌ی قابل استفاده موجود است.`
@@ -4198,17 +4523,30 @@ async function loadCopy() {
   const requestId = ++copyRequestId;
   const locale = uiPreferences.locale;
   try {
-    const [baseResponse, localeResponse] = await Promise.all([
+    const [baseResponse, localeResponse, runtimeResponse] = await Promise.all([
       fetch("content/fa.json", { cache: "no-store" }),
       locale === "fa"
         ? fetch("content/fa.json", { cache: "no-store" })
         : fetch("content/" + locale + ".json", { cache: "no-store" }),
+      fetch("content/runtime-copy.json", { cache: "no-store" }).catch(() => null),
     ]);
     if (!baseResponse.ok || !localeResponse.ok) throw new Error("Copy request failed");
     const baseCopy = await baseResponse.json();
     const localizedCopy = await localeResponse.json();
     if (requestId !== copyRequestId) return;
     copy = createLocalizedCatalog(baseCopy, localizedCopy);
+    if (runtimeResponse?.ok && locale !== "fa") {
+      const runtimeCopy = await runtimeResponse.json();
+      const localeIndex = { en: 0, ru: 1, zh: 2 }[locale];
+      copy.phrases = {
+        ...copy.phrases,
+        ...Object.fromEntries(
+          Object.entries(runtimeCopy)
+            .filter(([, translations]) => Array.isArray(translations) && typeof translations[localeIndex] === "string")
+            .map(([source, translations]) => [source, translations[localeIndex]]),
+        ),
+      };
+    }
   } catch {
     if (requestId !== copyRequestId) return;
     copy = fallbackCopy;
@@ -4349,6 +4687,14 @@ function bindEvents() {
   $("#refresh-inflation")?.addEventListener("click", refreshInflationAssumption);
   $("#provider-key-form")?.addEventListener("submit", saveProviderApiKey);
   $("#provider-key-clear")?.addEventListener("click", clearProviderApiKey);
+  $("#sync-create")?.addEventListener("click", () => void createEncryptedSync());
+  $("#sync-connect")?.addEventListener("click", () => void connectEncryptedSync());
+  $("#sync-upload")?.addEventListener("click", () => void uploadLocalSyncSnapshot());
+  $("#sync-restore")?.addEventListener("click", () => void restoreRemoteSyncSnapshot());
+  $("#sync-delete")?.addEventListener("click", () => void deleteRemoteSyncSnapshot());
+  $("#sync-disconnect")?.addEventListener("click", disconnectEncryptedSync);
+  $("#sync-copy-recovery")?.addEventListener("click", () => void copyRecoveryKey());
+  updateSyncControls();
   const clearSavedHistory = () => {
     if (
       !window.confirm(

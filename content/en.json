@@ -972,5 +972,33 @@
   },
   "errors": {
     "salary": "Enter a valid salary."
+  },
+  "sync": {
+    "unavailable": "Cloud sync is not configured; local data remains available.",
+    "rateLimited": "The temporary sync request limit was reached. Try again shortly.",
+    "conflict": "The cloud copy changed at the same time. Review and restore it before uploading.",
+    "sessionUnavailable": "A secure server session is unavailable; local data was not changed.",
+    "requestFailed": "The sync request did not complete; local data was left unchanged.",
+    "localDataUnavailable": "Some local data cannot be read. Sync stopped to avoid creating an incomplete copy.",
+    "invalidSnapshot": "The cloud copy is invalid; data on this device was not changed.",
+    "notConnected": "Connect to a cloud copy with your recovery key first.",
+    "createConfirm": "Create a new cloud copy from this device's current data? The data will be encrypted before upload.",
+    "recoveryKeyLabel": "Recovery key. Save it somewhere safe now:",
+    "recoveryKeyWarning": "This key is not saved on the device and will not be shown again after this page closes.",
+    "created": "Encrypted copy created. Save the recovery key; it is required to restore your data.",
+    "keyRequired": "Enter the recovery key.",
+    "deleted": "The cloud copy was deleted. This cannot be undone.",
+    "noRemoteCopy": "No copy was found for this key; this device was not changed. Choose upload to create a copy from local data.",
+    "connected": "The cloud copy was decrypted and checked; this device's data has not changed.",
+    "remoteChanged": "A newer cloud copy was found. Review and restore it before uploading to avoid overwriting it.",
+    "uploaded": "This device's changes were uploaded in encrypted form.",
+    "restoreConfirm": "This replaces this device's profile, plans, portfolio ledger, model assumptions, and appearance preferences with the cloud copy. Continue?",
+    "restored": "The cloud copy was restored and local data was updated atomically.",
+    "localWriteFailed": "The local save did not complete; previous data was preserved.",
+    "deleteConfirm": "Permanently delete the cloud copy and its encrypted data? This cannot be undone.",
+    "disconnected": "This device was disconnected; the cloud copy and local data remain.",
+    "invalidRecoveryKey": "The recovery key is invalid or cannot decrypt this cloud copy.",
+    "keyCopied": "Recovery key copied.",
+    "copyUnavailable": "Automatic copying is unavailable. Select and copy the key from the box."
   }
 }

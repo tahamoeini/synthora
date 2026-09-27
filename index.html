@@ -895,7 +895,7 @@
                   <div class="holdings-toolbar">
                     <label class="field holdings-search-field">
                       <span>جستجوی دارایی</span>
-                      <input id="portfolio-holdings-search" type="search" placeholder="نام دارایی" />
+                      <input id="portfolio-holdings-search" type="search" dir="auto" placeholder="نام دارایی" />
                     </label>
                     <label class="field holdings-filter-field">
                       <span>وضعیت قیمت</span>
@@ -1099,7 +1099,7 @@
                       ><input id="advanced-fee" type="text" inputmode="decimal" data-number-input />
                     </div>
                     <div class="field">
-                      <label for="advanced-note">یادداشت</label><input id="advanced-note" type="text" maxlength="300" />
+                      <label for="advanced-note">یادداشت</label><input id="advanced-note" type="text" dir="auto" maxlength="300" />
                     </div>
                     <button class="secondary-button transaction-submit" type="submit">ثبت تراکنش</button>
                   </form>
@@ -1365,6 +1365,7 @@
                   ><input
                     id="provider-api-key"
                     type="password"
+                    dir="ltr"
                     autocomplete="off"
                     maxlength="300"
                     placeholder="کلید را وارد کن"
@@ -1401,6 +1402,47 @@
                   >
                 </p>
               </form>
+              <article class="panel settings-card sync-settings-card">
+                <div class="section-heading">
+                  <div>
+                    <span class="kicker">ذخیره‌سازی اختیاری</span>
+                    <h3>همگام‌سازی رمزگذاری‌شده</h3>
+                  </div>
+                  <span class="info-chip">اختیاری</span>
+                </div>
+                <p>
+                  داده‌های شخصی تا وقتی این گزینه را راه‌اندازی نکنی فقط در همین مرورگر می‌مانند. همگام‌سازی دستی است؛
+                  پروفایل، برنامه‌ها، دفتر پرتفوی، فرض‌های مدل و ترجیحات ظاهری با کلیدی که فقط خودت داری، پیش از
+                  ارسال رمزگذاری می‌شوند. کلید را در جای امن نگه دار؛ اگر گم شود بازیابی داده ممکن نیست.
+                </p>
+                <div class="field">
+                  <label for="sync-recovery-key">کلید بازیابی همگام‌سازی</label>
+                  <input
+                    id="sync-recovery-key"
+                    type="password"
+                    dir="ltr"
+                    autocomplete="off"
+                    autocapitalize="characters"
+                    spellcheck="false"
+                    placeholder="SYN1-…"
+                  />
+                </div>
+                <div class="settings-actions sync-actions">
+                  <button id="sync-create" class="secondary-button" type="button">راه‌اندازی روی این دستگاه</button>
+                  <button id="sync-connect" class="secondary-button" type="button">اتصال به نسخه‌ی موجود</button>
+                </div>
+                <div class="settings-actions sync-actions">
+                  <button id="sync-upload" class="secondary-button" type="button" disabled>ارسال تغییرات این دستگاه</button>
+                  <button id="sync-restore" class="secondary-button" type="button" disabled>بررسی و بازیابی نسخه‌ی ابری</button>
+                  <button id="sync-delete" class="text-button" type="button" disabled>حذف نسخه‌ی ابری</button>
+                  <button id="sync-disconnect" class="text-button" type="button" disabled>قطع اتصال این دستگاه</button>
+                </div>
+                <pre id="sync-recovery-output" class="sync-recovery-output" dir="ltr" hidden></pre>
+                <button id="sync-copy-recovery" class="text-button" type="button" hidden>کپی کلید بازیابی</button>
+                <div id="sync-status" class="transfer-status transfer-neutral" role="status" aria-live="polite">
+                  همگام‌سازی خاموش است؛ داده‌ها فقط در این مرورگر ذخیره می‌شوند.
+                </div>
+              </article>
               <article class="panel settings-card">
                 <div class="section-heading">
                   <div>

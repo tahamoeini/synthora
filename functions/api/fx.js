@@ -93,6 +93,8 @@ function parseCbrMetals(xml) {
 }
 
 async function loadSharedReference(env, provider, fetchPayload) {
+  if (typeof env?.API_USAGE_DB?.prepare !== "function")
+    return { payload: await fetchPayload(), fetchedAt: Date.now(), status: "available" };
   const cached = await readPlatformProviderCache(env, provider);
   const age = cached ? Date.now() - cached.fetchedAt : Infinity;
   if (cached && age >= 0 && age < CACHE_AGE_MS)
@@ -158,7 +160,7 @@ function fxQuote({ rate, quotePerUsd, source, provider, observedAt, retrievedAt,
 }
 
 export async function onRequestGet(context = {}) {
-  const quota = await consumeRouteQuota(context, "fx");
+  const quota = await consumeRouteQuota(context, "fx", { allowPublicWhenUnconfigured: true });
   if (quota.error) return quota.error;
   const requestUrl = context.request?.url || "https://synthora.local/api/fx";
   const requested = validRequestedQuotes(requestUrl);

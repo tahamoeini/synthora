@@ -1,10 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import { parse } from "espree";
 import { createLocalizedCatalog, translateCopy } from "../src/ui/localization.js";
 
 function readCatalog(locale) {
   return JSON.parse(readFileSync(new URL("../content/" + locale + ".json", import.meta.url), "utf8"));
+}
+
+function runtimeCatalog(locale) {
+  const catalog = createLocalizedCatalog(readCatalog("fa"), readCatalog(locale));
+  const runtimeCopy = JSON.parse(readFileSync(new URL("../content/runtime-copy.json", import.meta.url), "utf8"));
+  const localeIndex = { en: 0, ru: 1, zh: 2 }[locale];
+  catalog.phrases = {
+    ...catalog.phrases,
+    ...Object.fromEntries(Object.entries(runtimeCopy).map(([source, translations]) => [source, translations[localeIndex]])),
+  };
+  return catalog;
 }
 
 function assertCatalogCoverage(base, localized, path = "root") {
@@ -38,6 +51,58 @@ test("each static locale catalog contains the complete Persian base key shape", 
   }
 });
 
+test("runtime-rendered copy has an English, Russian, and Chinese translation", () => {
+  const runtimeCopy = JSON.parse(readFileSync(new URL("../content/runtime-copy.json", import.meta.url), "utf8"));
+  assert.ok(Object.keys(runtimeCopy).length >= 150, "runtime phrase inventory is unexpectedly small");
+  for (const [source, translations] of Object.entries(runtimeCopy)) {
+    assert.ok(/[\u0600-\u06ff]/u.test(source), "runtime phrase source should be Persian");
+    assert.equal(translations.length, 3, source + " needs all three alternate locales");
+    for (const [localeIndex, translation] of translations.entries()) {
+      assert.ok(translation.length > 0, source + " has an empty translation");
+      assert.doesNotMatch(translation, /[\u0600-\u06ff]/u, source + " has Persian in locale index " + localeIndex);
+    }
+  }
+});
+
+test("Persian runtime text literals and template fragments have alternate translations", () => {
+  const files = [new URL("../app.js", import.meta.url).pathname];
+  const visitDirectory = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) visitDirectory(path);
+      else if (entry.name.endsWith(".js")) files.push(path);
+    }
+  };
+  visitDirectory(new URL("../src", import.meta.url).pathname);
+  const sources = new Set();
+  const visitNode = (node) => {
+    if (!node || typeof node !== "object") return;
+    if (node.type === "Literal" && typeof node.value === "string") sources.add(node.value);
+    if (node.type === "TemplateLiteral")
+      node.quasis.forEach((part) => sources.add(part.value.cooked ?? part.value.raw));
+    Object.values(node).forEach((value) => {
+      if (Array.isArray(value)) value.forEach(visitNode);
+      else if (value && typeof value === "object") visitNode(value);
+    });
+  };
+  for (const path of files)
+    visitNode(parse(readFileSync(path, "utf8"), { ecmaVersion: "latest", sourceType: "module" }));
+  const visiblePersian = [...sources].filter(
+    (value) => /[\u0600-\u06ff]/u.test(value) && /[\p{L}\p{M}]{2}/u.test(value),
+  );
+  const runtimeCopy = JSON.parse(readFileSync(new URL("../content/runtime-copy.json", import.meta.url), "utf8"));
+  for (const locale of ["en", "ru", "zh"]) {
+    const phrases = runtimeCatalog(locale).phrases;
+    for (const source of visiblePersian)
+      assert.doesNotMatch(
+        translateCopy(source, phrases),
+        /[\u0600-\u06ff]/u,
+        `${locale} leaves a runtime source literal untranslated: ${source}`,
+      );
+  }
+  assert.ok(Object.keys(runtimeCopy).length >= 150, "runtime phrase inventory is unexpectedly small");
+});
+
 test("visible page copy and accessibility text translate without Persian remnants", () => {
   const html = readFileSync(new URL("../index.html", import.meta.url), "utf8")
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gu, "")
@@ -50,7 +115,7 @@ test("visible page copy and accessibility text translate without Persian remnant
   }
   assert.ok(visible.length > 400, "page text inventory is unexpectedly small");
   for (const locale of ["en", "ru", "zh"]) {
-    const catalog = createLocalizedCatalog(readCatalog("fa"), readCatalog(locale));
+    const catalog = runtimeCatalog(locale);
     for (const value of visible)
       assert.doesNotMatch(
         translateCopy(value, catalog.phrases),
@@ -113,7 +178,6 @@ test("portfolio, reference, and appearance controls have reviewed static transla
 });
 
 test("runtime-rendered messages stay in one language across locales", () => {
-  const base = readCatalog("fa");
   const runtimeMessages = [
     "کمتر از یک ماه",
     "کلیدی ثبت نشده؛ در صورت نیاز، کلید CoinGecko Demo را وارد کن.",
@@ -148,9 +212,25 @@ test("runtime-rendered messages stay in one language across locales", () => {
     "همه دارایی‌های دارای موجودی، قیمت قابل استفاده دارند.",
     "12 ماه مشترک · 2024–2026",
     "بازده ماهانه مشترک برای همه دارایی‌های بازاری لازم است.",
+    "مقادیر منابع متعارض",
+    "وزن پیشنهادی",
+    "دارایی‌های بازار",
+    "نقد و درآمد ثابت",
+    "دارایی‌های نام‌دار",
+    "بازده مؤثر سالانه‌ی فرضی",
+    "نوسان سالانه",
+    "نوسان فرضی",
+    "نمایش ارزش نهایی",
+    "ارزش نهایی به تومان جاری",
+    "ارزش نهایی به پول امروز",
+    "شارپ نسبت به نرخ مؤثر درآمد ثابتِ انتخاب‌شده",
+    "ارزش تومانی ثبت‌شده",
+    "قیمت خودکار",
+    "تاریخچه‌ی بازار",
+    "داده‌های شخصی تا وقتی این گزینه را راه‌اندازی نکنی فقط در همین مرورگر می‌مانند. همگام‌سازی دستی است؛ پروفایل، برنامه‌ها، دفتر پرتفوی، فرض‌های مدل و ترجیحات ظاهری با کلیدی که فقط خودت داری، پیش از ارسال رمزگذاری می‌شوند. کلید را در جای امن نگه دار؛ اگر گم شود بازیابی داده ممکن نیست.",
   ];
   for (const locale of ["en", "ru", "zh"]) {
-    const catalog = createLocalizedCatalog(base, readCatalog(locale));
+    const catalog = runtimeCatalog(locale);
     for (const message of runtimeMessages) {
       const translated = translateCopy(message, catalog.phrases);
       assert.doesNotMatch(translated, /[\u0600-\u06ff]/u, `${locale} leaves runtime copy untranslated: ${message}`);

@@ -18,7 +18,7 @@ This index separates current product guidance from future proposals and historic
 
 | Document                                                                     | Status        | Use it for                                                                                                                                                                 |
 | ---------------------------------------------------------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [Data persistence, sync, and backup plan](data-persistence-and-sync-plan.md) | Proposal only | Research, options, unresolved product decisions, and possible future phases. It does not describe current cloud sync and does not authorize accounts or user-data uploads. |
+| [Data persistence, sync, and backup plan](data-persistence-and-sync-plan.md) | Mixed: current slice plus future proposals | The implemented opt-in encrypted snapshot sync and its limits, followed by research and possible future phases. |
 
 ## Historical review records
 
@@ -38,6 +38,6 @@ See [CREATOR.md](../CREATOR.md) for project creator attribution.
 
 ## Language and source freshness
 
-Technical documentation is maintained in English. The app defaults to Persian and loads `content/fa.json` as its base copy; English, Russian, and Chinese catalogs are present but incomplete, with uncovered entries falling back to Persian. Do not describe the alternate locales as complete translations until their coverage is finished and rechecked.
+Technical documentation is maintained in English. The app defaults to Persian and loads `content/fa.json` as its base copy. English, Russian, and Chinese visible static UI and reviewed runtime messages are covered by localization checks; Persian remains the fallback for keys not yet used by the visible interface.
 
 Cloudflare, provider, browser-storage, and third-party service limits can change. Documents that include numeric limits record a check date and link to the primary vendor documentation; confirm those sources again before relying on the figures for a launch or cost decision.

@@ -231,6 +231,28 @@ test("Monte Carlo returns ordered percentile outputs", () => {
   assert.ok(result.real.p10 <= result.real.p90);
 });
 
+test("planning and assumption-based simulation remain usable without market services", () => {
+  const offlineMarket = { assets: {}, funds: {}, history: {} };
+  const options = {
+    market: offlineMarket,
+    allocation: { fixed: 55, gold: 25, currency: 15, silver: 5 },
+    initialInvestment: 1_000_000,
+    monthlyContribution: 5_000_000,
+    horizonYears: 5,
+    assumptions: DEFAULT_ASSUMPTIONS,
+    paths: 1000,
+    seed: 42,
+  };
+  const plan = simulatePlan(options);
+  const simulation = runMonteCarlo(options);
+  const backtest = backtestHistorical({ ...options, horizonYears: 1 });
+  assert.ok(Number.isFinite(plan.finalValue));
+  assert.ok(Number.isFinite(simulation.nominal.p50));
+  assert.equal(simulation.estimated, true);
+  assert.equal(backtest.available, false);
+  assert.equal(backtest.estimated, false);
+});
+
 test("Monte Carlo respects an explicitly supplied zero covariance matrix", () => {
   const model = Object.fromEntries(ASSET_KEYS.map((asset) => [asset, { annualReturn: 0, annualVolatility: 0.9 }]));
   const covariance = ASSET_KEYS.map(() => ASSET_KEYS.map(() => 0));

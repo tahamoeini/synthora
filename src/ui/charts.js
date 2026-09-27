@@ -203,7 +203,7 @@ export function donutChartMarkup({
       return `${segment.color || "#126b62"} ${start.toFixed(2)}deg ${end.toFixed(2)}deg`;
     })
     .join(", ");
-  const legend = `<div class="donut-legend">${valid.map((segment) => `<div><span><i style="--legend-color:${escapeHTML(segment.color || "#126b62")}"></i>${escapeHTML(segment.name || "")}</span><strong>${escapeHTML(segment.percentLabel || `${Math.round((segment.value / total) * 100)}%`)}</strong></div>`).join("")}</div>`;
+  const legend = `<div class="donut-legend">${valid.map((segment) => `<div><span><i style="--legend-color:${escapeHTML(segment.color || "#126b62")}"></i><span${segment.userContent ? ' data-user-content=""' : ""}>${escapeHTML(segment.name || "")}</span></span><strong>${escapeHTML(segment.percentLabel || `${Math.round((segment.value / total) * 100)}%`)}</strong></div>`).join("")}</div>`;
   return `<div class="donut-layout"><div class="donut-chart" role="img" aria-label="${escapeHTML(ariaLabel)}" style="--donut-stops:${escapeHTML(stops)}"><div><small>${escapeHTML(centerLabel)}</small><strong>${escapeHTML(centerValue)}</strong></div></div>${legend}</div>`;
 }
 

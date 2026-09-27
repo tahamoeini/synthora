@@ -3,13 +3,18 @@ const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
 const SESSION_BOOTSTRAP_LIMIT = 60;
 const SESSION_BOOTSTRAP_WINDOW_SECONDS = 60 * 60;
 const CLEANUP_BATCH_SIZE = 100;
+const LOCAL_PUBLIC_LIMIT = 60;
+const LOCAL_PUBLIC_WINDOW_SECONDS = 60 * 60;
+const LOCAL_PUBLIC_MAX_BUCKETS = 5000;
 const encoder = new TextEncoder();
+const localPublicUsage = new Map();
 
 const ROUTE_LIMITS = Object.freeze({
   market: { count: 120, windowSeconds: 60 * 60 },
   history: { count: 24, windowSeconds: 60 * 60 },
   inflation: { count: 6, windowSeconds: 24 * 60 * 60 },
   fx: { count: 60, windowSeconds: 60 * 60 },
+  sync: { count: 40, windowSeconds: 60 * 60 },
 });
 
 function jsonResponse(body, status = 200, headers = {}) {
@@ -186,15 +191,48 @@ export async function issueSession(request, env) {
   });
 }
 
-export async function consumeRouteQuota(context, route) {
+function consumeLocalPublicQuota(request, route) {
+  if (request.method !== "GET") return { error: jsonResponse({ error: "method-not-allowed" }, 405) };
+  const origin = request.headers.get("origin");
+  const fetchSite = request.headers.get("sec-fetch-site");
+  if (origin !== new URL(request.url).origin && fetchSite !== "same-origin")
+    return { error: jsonResponse({ error: "same-origin-required" }, 403) };
+  const now = Math.floor(Date.now() / 1000);
+  const windowStart = Math.floor(now / LOCAL_PUBLIC_WINDOW_SECONDS) * LOCAL_PUBLIC_WINDOW_SECONDS;
+  const clientAddress = request.headers.get("cf-connecting-ip")?.trim() || "unattributed";
+  let key = `${clientAddress}:${route}:${windowStart}`;
+  if (localPublicUsage.size >= LOCAL_PUBLIC_MAX_BUCKETS) {
+    for (const [bucket, value] of localPublicUsage) {
+      if (value.windowStart < windowStart) localPublicUsage.delete(bucket);
+      if (localPublicUsage.size < LOCAL_PUBLIC_MAX_BUCKETS) break;
+    }
+  }
+  if (localPublicUsage.size >= LOCAL_PUBLIC_MAX_BUCKETS && !localPublicUsage.has(key))
+    key = `overflow:${route}:${windowStart}`;
+  const count = (localPublicUsage.get(key)?.count || 0) + 1;
+  if (count > LOCAL_PUBLIC_LIMIT) {
+    const retryAfter = Math.max(1, windowStart + LOCAL_PUBLIC_WINDOW_SECONDS - now);
+    return {
+      error: jsonResponse({ error: "rate-limit-exceeded", retryAfterSeconds: retryAfter }, 429, {
+        "retry-after": String(retryAfter),
+      }),
+    };
+  }
+  localPublicUsage.set(key, { count, windowStart });
+  return { unmetered: true, db: null };
+}
+
+export async function consumeRouteQuota(context, route, { allowPublicWhenUnconfigured = false } = {}) {
   const request = context.request;
   if (!request || !originAllowed(request)) return { error: jsonResponse({ error: "same-origin-required" }, 403) };
+  const db = databaseFor(context.env);
+  if (allowPublicWhenUnconfigured && (!secretFor(context.env) || !db))
+    return consumeLocalPublicQuota(request, route);
   const session = await readSession(request, context.env);
   if (session.error) return { error: session.error };
   if (!session.sessionHash) return { error: jsonResponse({ error: "session-required" }, 401) };
   const limit = ROUTE_LIMITS[route];
   if (!limit) return { error: jsonResponse({ error: "route-quota-unavailable" }, 503) };
-  const db = databaseFor(context.env);
   const now = Math.floor(Date.now() / 1000);
   const windowStart = Math.floor(now / limit.windowSeconds) * limit.windowSeconds;
   try {

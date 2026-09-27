@@ -1,8 +1,10 @@
 # Synthora Data Persistence, Sync, and Backup Plan
 
-**Status:** Research-backed implementation proposal  
+**Status:** Research-backed plan; one limited sync slice is implemented  
 **Prepared:** 2026-09-26  
-**Scope:** User data durability, cross-device sync, shared public market data, backups, privacy, cost controls, and phased implementation. This is a plan; no application code has been changed.
+**Scope:** User data durability, cross-device sync, shared public market data, backups, privacy, cost controls, and phased implementation.
+
+The current product remains local-first. The implemented sync slice is a manual, explicit opt-in encrypted snapshot using a user-held recovery key, revision checks, and a separate `USER_DATA_DB`. It does not include accounts, automatic/background sync, offline outbox convergence, multi-device field/ledger merging, or scheduled backups. Those remain proposals below. Do not describe remote sync as available in production or preview until that environment's binding and migration are verified.
 
 ## 1. Executive recommendation
 
@@ -21,10 +23,10 @@ This is the lowest-friction option that fits the existing Cloudflare deployment 
 | Choice                    | What it means                                                                                          | Initial availability                 |
 | ------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------ |
 | This device only          | Personal data stays in this browser profile. It works offline; users export a backup themselves.       | Default; no account required         |
-| Sync with Synthora        | Local copy syncs to Synthora's authenticated Cloudflare service and can be restored on another device. | First cloud feature                  |
+| Sync with Synthora        | User-encrypted snapshot can be uploaded and restored on another device with the recovery key.             | Implemented, opt-in manual snapshot  |
 | Back up to my cloud drive | A user-visible backup file is written to the user's Google Drive or OneDrive account.                  | Later, optional provider integration |
 
-Do not make cloud sync opt-out by default. Ask before the first upload, state which fields sync, and provide pause, export, delete, and sign-out controls.
+Sync stays off until the user creates or enters a recovery key and explicitly uploads. The current client encrypts its allow-listed snapshot before upload and requires the recovery key on each device. It offers connect, upload, restore, delete, and disconnect controls; it is not an account login or a substitute for a separately saved recovery key.
 
 ## 2. Current state and problem definition
 
@@ -33,8 +35,8 @@ Repository review and current documentation show:
 - Profile, salary, recommendation history, portfolio ledger, and model settings are stored in browser `localStorage` from [`app.js`](../app.js); locale/display preferences and navigation/cache preferences are handled by [`src/ui/preferences.js`](../src/ui/preferences.js) and [`src/ui/state.js`](../src/ui/state.js). These survive a normal reload but do not follow the user to another browser profile or device.
 - The browser reuses its market response cache for up to 90 seconds and historical comparison responses for up to one hour, retaining only a small number of recent query combinations. These client caches are not durable market history. The user can disable browser market-cache fallback.
 - `/api/market`, `/api/history`, `/api/inflation`, and `/api/fx` run through Cloudflare Pages Functions. Migration 0002 adds a D1 cache of selected public provider responses and shared provider cooldown state. This is operational request coordination, not a canonical normalized history store. `/api/history` still fetches and normalizes source history per request; there is no shared, durable validated price-history dataset. The inflation route uses Cloudflare's upstream fetch cache, not a versioned CPI archive.
-- Migrations [`0001_api_quotas.sql`](../functions/api/migrations/0001_api_quotas.sql) and [`0002_provider_coordination.sql`](../functions/api/migrations/0002_provider_coordination.sql) create API-session, route-usage, monthly provider-budget, cooldown, and provider-response cache state. The signed cookie in [`functions/api/_security.js`](../functions/api/_security.js) identifies a browser session for quotas; it is not a Synthora account.
-- The current versioned JSON transfer covers saved recommendation history and the personal portfolio ledger. It does not include profile/salary, model settings, interface preferences, transient caches, or API keys, so it is not a full personal-data backup.
+- Migrations [`0001_api_quotas.sql`](../functions/api/migrations/0001_api_quotas.sql), [`0002_provider_coordination.sql`](../functions/api/migrations/0002_provider_coordination.sql), and [`0004_api_session_bootstrap_limit.sql`](../functions/api/migrations/0004_api_session_bootstrap_limit.sql) create API-session, route-usage, monthly provider-budget, cooldown, provider-response cache, and session-bootstrap-limit state. The signed cookie in [`functions/api/_security.js`](../functions/api/_security.js) identifies a browser session for quotas; it is not a Synthora account. Migration 0003 is separate and only belongs on `USER_DATA_DB`.
+- The current versioned JSON file export covers saved recommendation history and the personal portfolio ledger. It does not include profile/salary, model settings, interface preferences, transient caches, or API keys. The separate encrypted sync snapshot includes profile, history, portfolio, model settings, and selected preferences, but it is manual and does not replace a tested full backup/export lifecycle.
 - The recommendation and portfolio model already distinguishes observed source history from assumptions and missing data. Persistence work must preserve those distinctions and must never fabricate missing market observations.
 
 Clearing browser data needs precise product wording. A browser's “clear cookies” action can be separate from “clear site data”; the latter can remove local storage and other origin data. IndexedDB and the Storage API can improve local storage behavior but cannot guarantee recovery after a user explicitly deletes site data. See [MDN's storage and eviction guidance](https://developer.mozilla.org/en-US/docs/Web/API/Storage_API/Storage_quotas_and_eviction_criteria).
@@ -57,7 +59,7 @@ Clearing browser data needs precise product wording. A browser's “clear cookie
 - Realtime collaboration between simultaneous editors.
 - Multiple cloud-drive providers at launch.
 - Using a stale quote as if it were current, or interpolating missing historical prices.
-- A promise of end-to-end encryption until key recovery and restore have been designed and verified.
+- A promise that encrypted snapshots provide a complete backup until recovery, restore, and retention behavior have been verified in a deployed environment.
 - A guarantee that every third-party API or free tier will remain free forever.
 
 ## 4. Target architecture

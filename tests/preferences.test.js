@@ -100,3 +100,20 @@ test("display conversion uses accepted quotes without mutating the Toman input",
   });
   assert.equal(displayCurrencyValue(ledgerValue, "RUB", { RUB: { rate: null, status: "unavailable" } }), null);
 });
+
+test("all supported display currencies convert the same Toman base without changing it", () => {
+  const tomanValue = 12_500_000;
+  const quotes = {
+    USD: { rate: 0.00002, status: "available" },
+    RUB: { rate: 0.0015, status: "available" },
+    CNY: { rate: 0.00014, status: "available" },
+  };
+  for (const currency of ["USD", "RUB", "CNY"]) {
+    const result = displayCurrencyValue(tomanValue, currency, quotes);
+    assert.equal(result.amount, tomanValue * quotes[currency].rate);
+    assert.equal(result.currency, currency);
+    assert.equal(result.converted, true);
+  }
+  assert.equal(displayCurrencyValue(tomanValue, "TOMAN", quotes).amount, tomanValue);
+  assert.equal(tomanValue, 12_500_000);
+});

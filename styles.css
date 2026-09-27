@@ -35,7 +35,7 @@ html {
   color-scheme: light;
 }
 html[dir="ltr"] body {
-  font-family: Inter, "Noto Sans", Arial, system-ui, sans-serif;
+  font-family: system-ui, "Segoe UI", Arial, sans-serif;
 }
 html[data-theme="dark"] {
   color-scheme: dark;
@@ -124,6 +124,19 @@ button,
 input,
 select {
   font: inherit;
+  font-size: 0.875rem;
+}
+input[type="number"],
+input[type="date"],
+input[type="datetime-local"],
+input[inputmode="decimal"] {
+  direction: ltr;
+  text-align: end;
+}
+#provider-api-key {
+  direction: ltr;
+  text-align: start;
+  unicode-bidi: plaintext;
 }
 button,
 select {
@@ -599,6 +612,9 @@ input[type="range"] {
   transition:
     transform 0.2s ease,
     background 0.2s ease;
+}
+html[dir="ltr"] .primary-button b {
+  transform: scaleX(-1);
 }
 .primary-button:hover {
   transform: translateY(-1px);
@@ -1690,6 +1706,37 @@ input[type="range"] {
     grid-column: auto;
   }
 }
+.sync-settings-card > p {
+  max-width: 78ch;
+  overflow-wrap: anywhere;
+}
+.sync-actions {
+  align-items: stretch;
+}
+.sync-actions > button {
+  flex: 1 1 190px;
+  margin-top: 0;
+}
+.sync-actions > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.sync-recovery-output {
+  max-width: 100%;
+  margin: 12px 0 0;
+  padding: 12px;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-muted);
+  color: var(--ink);
+  font: 700 0.95rem/1.7 ui-monospace, monospace;
+  white-space: pre-wrap;
+  user-select: all;
+}
+html[data-theme="dark"] .secondary-button:hover {
+  background: #28443f;
+}
 
 @media (max-width: 740px) {
   .model-overview,
@@ -1778,8 +1825,14 @@ input[type="range"] {
   font-size: 1.15rem;
   transition: transform 0.22s ease;
 }
+html[dir="ltr"] .sidebar-toggle {
+  transform: scaleX(-1);
+}
 .app-shell.is-sidebar-collapsed .sidebar-toggle {
   transform: rotate(180deg);
+}
+html[dir="ltr"] .app-shell.is-sidebar-collapsed .sidebar-toggle {
+  transform: rotate(180deg) scaleX(-1);
 }
 .app-navigation {
   display: grid;
@@ -4304,7 +4357,7 @@ html[data-theme="dark"] .chart-gap {
   }
 }
 html[dir="ltr"] .chart-axis-label {
-  font-family: Inter, "Noto Sans", Arial, system-ui, sans-serif;
+  font-family: system-ui, "Segoe UI", Arial, sans-serif;
 }
 @media (max-width: 460px) {
   .allocation-compare-row > span,

@@ -3,7 +3,7 @@ import { consumeRouteQuota, securityJson } from "./_security.js";
 const WORLD_BANK_URL = "https://api.worldbank.org/v2/country/IR/indicator/FP.CPI.TOTL.ZG?format=json&per_page=20";
 
 export async function onRequestGet(context) {
-  const quota = await consumeRouteQuota(context, "inflation");
+  const quota = await consumeRouteQuota(context, "inflation", { allowPublicWhenUnconfigured: true });
   if (quota.error) return quota.error;
   try {
     const response = await fetch(WORLD_BANK_URL, {

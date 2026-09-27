@@ -170,6 +170,7 @@ async function fetchYahooSeries(assetId) {
 
 async function fetchCryptoSeries(assetId, apiKey, userSuppliedKey, env) {
   if (!apiKey) throw new Error("coingecko-demo-key-missing");
+  const hasDurableQuota = typeof env?.API_USAGE_DB?.prepare === "function";
   let providerId = "coingecko";
   const budget = { minimumIntervalSeconds: 60 };
   if (userSuppliedKey) {
@@ -184,7 +185,8 @@ async function fetchCryptoSeries(assetId, apiKey, userSuppliedKey, env) {
   } else {
     budget.monthlyLimit = 8000;
   }
-  if (!(await reservePlatformProviderRequest(env, providerId, budget))) throw new Error("provider-rate-limited");
+  if ((hasDurableQuota || !userSuppliedKey) && !(await reservePlatformProviderRequest(env, providerId, budget)))
+    throw new Error("provider-rate-limited");
   const sourceUrl =
     COINGECKO_BASE +
     encodeURIComponent(COINGECKO_IDS[assetId]) +
@@ -247,7 +249,7 @@ async function loadRawSeries(assetId, apiKey, userSuppliedKey, env) {
 }
 
 export async function onRequestGet(context = {}) {
-  const quota = await consumeRouteQuota(context, "history");
+  const quota = await consumeRouteQuota(context, "history", { allowPublicWhenUnconfigured: true });
   if (quota.error) return quota.error;
   const request = parseHistoryRequest(context.request?.url);
   if (request.error) return securityJson({ error: request.error }, 400);

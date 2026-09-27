@@ -9,10 +9,12 @@ For the maintained documentation map and the status of historical reviews and pr
 ## Product behavior
 
 - Persian is the default and base interface, using Vazirmatn. Settings also offer English, Russian, and Chinese. The locale affects translated text, page direction, and number formatting. Toman remains the default display currency in every language until the user selects another currency. Stored values and model calculations remain in toman.
+- Visible static interface text, accessible labels, and reviewed runtime messages are translated for English, Russian, and Chinese; localization tests check the source strings.
 - English source code, comments, README, and technical documentation.
 - A catalog separates priceable instruments from eight decision sleeves: liquidity, fixed income, gold, FX, Iran equity, global equity, crypto, and commodities. Recommendations still use the established fixed-income, gold, currency, and silver categories until other sleeves have adequate data or explicit versioned assumptions.
 - All Iranian currency inputs, market values, calculations, and exports use تومان. Display-currency conversion changes rendered values only. Legacy browser data and legacy exports are converted once on import; gold and silver quantities remain grams.
-- Salary, profile inputs, recommendation snapshots, model assumptions, portfolio records, and interface preferences remain in browser storage. They are not sent to market or reference-data APIs.
+- Salary, profile inputs, recommendation snapshots, model assumptions, portfolio records, and interface preferences remain in browser storage by default. They are never sent to market or reference-data APIs. Optional manual sync sends only a client-encrypted allow-listed snapshot to `/api/sync` after the user creates a recovery key and explicitly uploads.
+- Sync uses a user-held recovery key instead of an account. The browser encrypts profile, saved plans, portfolio ledger, model settings, and preferences; provider keys, session credentials, and market caches are excluded. Upload, restore, and delete are manual, revision-checked actions. The recovery key is not stored by the app and must be retained separately.
 - The current versioned JSON transfer covers saved recommendation history and the personal portfolio ledger; it is not a full backup of profile inputs, model settings, interface preferences, caches, or credentials. Imported recommendation records merge by timestamp; an imported portfolio ledger replaces the current one only after confirmation.
 - A personal portfolio tracker has one primary dated transaction-entry form and a separate advanced ledger for transfers, corrections, and cash flows. Manual prices are price history only; they never create transactions.
 - Portfolio values are calculated from holdings at a selected date and the best available immutable market-history point. Missing history remains missing rather than being backfilled.
@@ -44,11 +46,13 @@ functions/api/market.js    Cloudflare Pages Function for selected-asset quotes a
 functions/api/history.js   Cloudflare Pages Function for observed historical data
 functions/api/fx.js        Cloudflare Pages Function for dated FX and metal references
 functions/api/session.js   Signed, HttpOnly browser-session bootstrap
+functions/api/sync.js     Optional encrypted personal-data snapshot endpoint
 functions/api/inflation.js World Bank annual CPI reference
 functions/api/migrations/ D1 sessions, quotas, cooldowns, and provider-response cache
+src/sync.js                Browser-side recovery-key derivation and snapshot encryption
 src/ui/preferences.js     Local locale, display-currency, and theme preferences
 src/ui/localization.js    Locale catalog merge and Persian fallback
-content/*.json            Persian base copy and partial en/ru/zh catalogs
+content/*.json            Persian base copy, en/ru/zh catalogs, and runtime-message translations
 tests/engine.test.js      Core model and portfolio tests
 tests/financial-model.test.js Seeded quantitative regression tests
 tests/history-api.test.js History API and dated copper conversion tests
@@ -108,21 +112,23 @@ The default assumptions are intentionally visible in `src/engine.js` and are not
 
 ## Local development
 
-Serve the static app over HTTP; opening `index.html` with `file://` does not support its module and copy-catalog requests. Planning, simulations, manual quotes, and browser-stored records remain available without a provider key or server binding. Live `/api/*` requests require the Pages Functions runtime and a local D1 binding plus a local-only session signing secret. The [Cloudflare setup guide](docs/cloudflare-market-api.md#local-pages-preview) describes that setup. Without those bindings, security-protected API routes return `api-security-not-configured`; the browser displays live market and reference data as unavailable without blocking local workflows.
+Serve the app over HTTP; opening `index.html` with `file://` does not support its module and copy-catalog requests. Planning, assumption-based simulations, manual quotes, and browser-stored records work without a provider key or database. Public market and reference sources work through same-origin Pages Functions in bounded read-only mode without D1; D1 adds durable rate limits, shared provider caching, and access to platform-paid provider keys. A user's own CoinGecko key can add live crypto quotes and history without D1. Sync requires API security configuration and a separate `USER_DATA_DB`. The [Cloudflare setup guide](docs/cloudflare-market-api.md#local-pages-preview) describes these options.
 
 ```bash
 npm install
 npm run format:check
 npm run lint
 npm run check
-npx wrangler pages dev . --compatibility-date=2026-09-18 --d1 API_USAGE_DB=<database-id>
+npx wrangler pages dev . --compatibility-date=2026-09-18
 ```
+
+This starts the public-source fallback without D1. To test durable quotas and platform provider keys, bind a local `API_USAGE_DB` and set a local `API_SESSION_SIGNING_SECRET` as described in the Cloudflare guide. To test sync, bind a separate `USER_DATA_DB` and apply migration 0003 to that database only.
 
 Open the local URL printed by Wrangler.
 
 ## Deploy with Cloudflare Pages and GitHub
 
-Cloudflare Pages Functions run server-side code at the edge, so the static page and `/api/*` endpoints can be deployed from one repository. Follow the [market API setup guide](docs/cloudflare-market-api.md) to configure the signed session, D1 quotas, and provider secrets. See the official [Cloudflare Pages Functions documentation](https://developers.cloudflare.com/pages/functions/).
+Cloudflare Pages Functions run server-side code at the edge, so the static page and `/api/*` endpoints can be deployed from one repository. Follow the [market API setup guide](docs/cloudflare-market-api.md) to configure D1 quotas, provider secrets, and optional encrypted sync. Public no-platform-key data can work without D1, but use `API_USAGE_DB` for durable limits and platform provider credentials. See the official [Cloudflare Pages Functions documentation](https://developers.cloudflare.com/pages/functions/).
 
 1. Open **Workers & Pages** in Cloudflare.
 2. Choose **Create application** and select **Pages**.
@@ -140,7 +146,7 @@ Cloudflare Pages Functions run server-side code at the edge, so the static page 
 https://YOUR-PAGES-DOMAIN.pages.dev/api/market
 ```
 
-The response should contain `updatedAt`, `assets`, `funds`, `history`, `catalog`, `diagnostics`, and `sources`. First visit must obtain a signed `/api/session` cookie. If the D1 binding or signing secret is missing, the API returns a configuration error instead of serving unmetered provider calls.
+The response should contain `updatedAt`, `assets`, `funds`, `history`, `catalog`, `diagnostics`, and `sources`. With D1 configured, first visit obtains a signed `/api/session` cookie and uses durable quotas. Without D1, the endpoint serves only public sources through same-origin GETs with a best-effort per-edge-instance limit; platform-paid keys are not spent.
 
 Do not put `wrangler pages deploy` inside the Pages build command. `npm run fix` rewrites formatting across the repository and runs automatic lint fixes; use it only when you intend a repository-wide rewrite.
 
@@ -157,6 +163,8 @@ Before publishing, also verify:
 - `/api/market` returns no fabricated values when one or more providers fail.
 - Provider count and median source values are visible in the JSON response.
 - Salary and local history are not present in any network request.
+- No-D1 public-source routes work only as same-origin GET requests, return no personal data, and never spend a configured platform-paid provider key.
+- Sync uploads contain client-encrypted allow-listed records only; verify restore from another browser profile with the recovery key.
 - Exported history can be imported into an empty browser and duplicate timestamps are not duplicated.
 - The UI remains usable on a narrow mobile viewport.
 - A partial historical response is excluded from backtest results and model-based future estimates are labelled as such.

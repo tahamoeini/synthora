@@ -297,6 +297,8 @@ async function providerCrypto(
       .filter(Boolean);
   };
   if (userSuppliedKey) {
+    if (typeof env?.API_USAGE_DB?.prepare !== "function")
+      return { quotes: await fetchQuotes(), cacheStatus: "uncached" };
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(apiKey));
     const keyId = [...new Uint8Array(digest)]
       .slice(0, 10)
@@ -423,6 +425,8 @@ async function loadCoordinatedProviderPayload(env, provider, fetchPayload, optio
   const maxAgeMs = options.maxAgeMs ?? 60_000;
   const maxStaleMs = options.maxStaleMs ?? 60 * 60_000;
   const quotaProvider = options.quotaProvider || provider;
+  if (typeof env?.API_USAGE_DB?.prepare !== "function")
+    return { payload: await fetchPayload(), cacheStatus: "uncached" };
   const cached = await readPlatformProviderCache(env, provider);
   const age = cached ? Date.now() - cached.fetchedAt : Infinity;
   if (cached && age >= 0 && age < maxAgeMs) return { payload: cached.quotes, cacheStatus: "cached" };
@@ -945,12 +949,16 @@ async function getFixedIncomeMetric() {
 }
 
 export async function onRequestGet(context = {}) {
-  const quota = await consumeRouteQuota(context, "market");
+  const quota = await consumeRouteQuota(context, "market", { allowPublicWhenUnconfigured: true });
   if (quota.error) return quota.error;
   const startedAt = Date.now();
   const now = new Date().toISOString();
   const requestUrl = context.request?.url || "https://invest-consult.local/api/market";
-  const providerKey = selectedProviderKey(context.request, context.env);
+  const selectedKey = selectedProviderKey(context.request, context.env);
+  const providerKey =
+    typeof context.env?.API_USAGE_DB?.prepare !== "function" && !selectedKey.userSupplied
+      ? { ...selectedKey, key: "" }
+      : selectedKey;
   const selected = parseRequestedAssets(requestUrl) || new Set(DEFAULT_MARKET_ASSETS);
   const derivedAssets = new Set(["gold", "silver", "bitcoin", "ethereum", "tether", "platinum", "palladium", "copper"]);
   const needsConversion = [...selected].some((asset) => derivedAssets.has(asset));
@@ -985,7 +993,7 @@ export async function onRequestGet(context = {}) {
       id: "coinMarketCap",
       run: () => providerCoinMarketCap([...selected], context.env),
       coordinated: false,
-      enabled: wantsAny("bitcoin", "ethereum", "tether"),
+      enabled: typeof context.env?.API_USAGE_DB?.prepare === "function" && wantsAny("bitcoin", "ethereum", "tether"),
     },
     { id: "binance", run: () => providerCryptoBinance([...selected]), enabled: wantsAny("bitcoin", "ethereum") },
     { id: "metalsLive", run: providerGlobalMetals, enabled: wantsAny("silver", "platinum", "palladium", "copper") },

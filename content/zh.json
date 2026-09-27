@@ -966,5 +966,33 @@
   },
   "errors": {
     "salary": "请输入有效的薪资金额。"
+  },
+  "sync": {
+    "unavailable": "云同步尚未配置；本地数据仍可使用。",
+    "rateLimited": "已达到临时同步请求上限，请稍后重试。",
+    "conflict": "云端副本同时发生了更改。请先检查并恢复，再上传。",
+    "sessionUnavailable": "安全服务器会话不可用；本地数据未更改。",
+    "requestFailed": "同步请求未完成；本地数据保持不变。",
+    "localDataUnavailable": "部分本地数据无法读取。为避免创建不完整副本，同步已停止。",
+    "invalidSnapshot": "云端副本无效；此设备上的数据未更改。",
+    "notConnected": "请先使用恢复密钥连接到云端副本。",
+    "createConfirm": "要使用此设备当前数据创建新的云端副本吗？数据将在上传前加密。",
+    "recoveryKeyLabel": "恢复密钥。请立即将其保存在安全位置：",
+    "recoveryKeyWarning": "此密钥不会保存在设备上，关闭页面后将不再显示。",
+    "created": "已创建加密副本。请保存恢复密钥；恢复数据时必须使用该密钥。",
+    "keyRequired": "请输入恢复密钥。",
+    "deleted": "云端副本已删除。此操作无法撤销。",
+    "noRemoteCopy": "未找到此密钥对应的副本；此设备未更改。选择上传可从本地数据创建副本。",
+    "connected": "云端副本已解密并检查；此设备的数据尚未更改。",
+    "remoteChanged": "发现较新的云端副本。为避免覆盖，请先检查并恢复该副本。",
+    "uploaded": "此设备的更改已加密上传。",
+    "restoreConfirm": "此操作将用云端副本替换此设备的个人资料、计划、投资组合账本、模型假设和外观偏好。是否继续？",
+    "restored": "云端副本已恢复，本地数据已通过原子方式更新。",
+    "localWriteFailed": "本地保存未完成；此前的数据已保留。",
+    "deleteConfirm": "要永久删除云端副本及其加密数据吗？此操作无法撤销。",
+    "disconnected": "此设备已断开连接；云端副本和本地数据均保留。",
+    "invalidRecoveryKey": "恢复密钥无效，或无法解密此云端副本。",
+    "keyCopied": "恢复密钥已复制。",
+    "copyUnavailable": "无法自动复制；请在框中选择并复制密钥。"
   }
 }
