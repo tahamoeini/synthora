@@ -1,7 +1,7 @@
 # Synthora Data Persistence, Sync, and Backup Plan
 
-**Status:** Research-backed plan; one limited sync slice is implemented  
-**Prepared:** 2026-09-26  
+**Status:** Research-backed plan; one limited sync slice is implemented<br>
+**Prepared:** 2026-09-26<br>
 **Scope:** User data durability, cross-device sync, shared public market data, backups, privacy, cost controls, and phased implementation.
 
 The current product remains local-first. The implemented sync slice is a manual, explicit opt-in encrypted snapshot using a user-held recovery key, revision checks, and a separate `USER_DATA_DB`. It does not include accounts, automatic/background sync, offline outbox convergence, multi-device field/ledger merging, or scheduled backups. Those remain proposals below. Do not describe remote sync as available in production or preview until that environment's binding and migration are verified.

@@ -3,6 +3,7 @@ import { INSTRUMENT_REGISTRY } from "../../src/market/catalog.js";
 import {
   consumeRouteQuota,
   deferPlatformProviderRequest,
+  hasDurableSessionSecurity,
   reservePlatformProviderRequest,
   securityJson,
   selectedProviderKey,
@@ -170,6 +171,7 @@ async function fetchYahooSeries(assetId) {
 
 async function fetchCryptoSeries(assetId, apiKey, userSuppliedKey, env) {
   if (!apiKey) throw new Error("coingecko-demo-key-missing");
+  if (!userSuppliedKey && !hasDurableSessionSecurity(env)) throw new Error("platform-key-security-not-configured");
   const hasDurableQuota = typeof env?.API_USAGE_DB?.prepare === "function";
   let providerId = "coingecko";
   const budget = { minimumIntervalSeconds: 60 };
@@ -210,6 +212,7 @@ async function fetchCryptoSeries(assetId, apiKey, userSuppliedKey, env) {
 
 function errorReason(error) {
   if (error?.message === "coingecko-demo-key-missing") return "coingecko-demo-key-missing";
+  if (error?.message === "platform-key-security-not-configured") return "platform-key-security-not-configured";
   if (error?.message === "platform-key-monthly-quota-exceeded") return "platform-key-monthly-quota-exceeded";
   if (error?.message === "provider-rate-limited") return "provider-rate-limited";
   if (error?.message === "yahoo-license-not-confirmed") return "yahoo-license-not-confirmed";
@@ -264,7 +267,9 @@ export async function onRequestGet(context = {}) {
       ...(needsDollarHistory && !selectedAssets.includes("dollar") ? ["dollar"] : []),
     ]),
   ];
-  const providerKey = selectedProviderKey(context.request, context.env);
+  const selectedKey = selectedProviderKey(context.request, context.env);
+  const providerKey =
+    !hasDurableSessionSecurity(context.env) && !selectedKey.userSupplied ? { ...selectedKey, key: "" } : selectedKey;
   const settled = await Promise.allSettled(
     rawAssets.map(async (assetId) => [
       assetId,

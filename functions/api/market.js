@@ -2,6 +2,7 @@ import { INSTRUMENT_REGISTRY, SLEEVE_REGISTRY } from "../../src/market/catalog.j
 import {
   consumeRouteQuota,
   deferPlatformProviderRequest,
+  hasDurableSessionSecurity,
   readPlatformProviderCache,
   reservePlatformProviderRequest,
   selectedProviderKey,
@@ -274,6 +275,8 @@ async function providerCrypto(
   const mapping = { bitcoin: "bitcoin", ethereum: "ethereum", tether: "tether" };
   const selected = Object.entries(mapping).filter(([, asset]) => requested.includes(asset));
   if (!selected.length) return [];
+  if (!apiKey) throw new Error("coingecko-demo-key-missing");
+  if (!userSuppliedKey && !hasDurableSessionSecurity(env)) throw new Error("platform-key-security-not-configured");
   const url =
     COINGECKO_SIMPLE_URL +
     `?ids=${selected.map(([id]) => id).join(",")}&vs_currencies=usd&include_24hr_change=true&include_last_updated_at=true`;
@@ -322,6 +325,7 @@ async function providerCrypto(
 }
 
 async function providerCoinMarketCap(requested, env) {
+  if (!hasDurableSessionSecurity(env)) throw new Error("platform-key-security-not-configured");
   const apiKey = typeof env?.COINMARKETCAP_API_KEY === "string" ? env.COINMARKETCAP_API_KEY.trim() : "";
   const mapping = { bitcoin: "bitcoin", ethereum: "ethereum", tether: "tether" };
   const selected = Object.entries(mapping).filter(([, asset]) => requested.includes(asset));
@@ -956,9 +960,7 @@ export async function onRequestGet(context = {}) {
   const requestUrl = context.request?.url || "https://invest-consult.local/api/market";
   const selectedKey = selectedProviderKey(context.request, context.env);
   const providerKey =
-    typeof context.env?.API_USAGE_DB?.prepare !== "function" && !selectedKey.userSupplied
-      ? { ...selectedKey, key: "" }
-      : selectedKey;
+    !hasDurableSessionSecurity(context.env) && !selectedKey.userSupplied ? { ...selectedKey, key: "" } : selectedKey;
   const selected = parseRequestedAssets(requestUrl) || new Set(DEFAULT_MARKET_ASSETS);
   const derivedAssets = new Set(["gold", "silver", "bitcoin", "ethereum", "tether", "platinum", "palladium", "copper"]);
   const needsConversion = [...selected].some((asset) => derivedAssets.has(asset));
@@ -993,7 +995,7 @@ export async function onRequestGet(context = {}) {
       id: "coinMarketCap",
       run: () => providerCoinMarketCap([...selected], context.env),
       coordinated: false,
-      enabled: typeof context.env?.API_USAGE_DB?.prepare === "function" && wantsAny("bitcoin", "ethereum", "tether"),
+      enabled: hasDurableSessionSecurity(context.env) && wantsAny("bitcoin", "ethereum", "tether"),
     },
     { id: "binance", run: () => providerCryptoBinance([...selected]), enabled: wantsAny("bitcoin", "ethereum") },
     { id: "metalsLive", run: providerGlobalMetals, enabled: wantsAny("silver", "platinum", "palladium", "copper") },

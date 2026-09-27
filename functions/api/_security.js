@@ -33,6 +33,10 @@ function databaseFor(env) {
   return env?.API_USAGE_DB && typeof env.API_USAGE_DB.prepare === "function" ? env.API_USAGE_DB : null;
 }
 
+export function hasDurableSessionSecurity(env) {
+  return Boolean(secretFor(env) && databaseFor(env));
+}
+
 async function signingKey(secret, usages = ["sign", "verify"]) {
   return crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, usages);
 }

@@ -22,6 +22,25 @@ function context(path, { env = {}, headers = {}, method = "GET" } = {}) {
   };
 }
 
+function databaseWithoutSessionSecurity() {
+  return {
+    prepare(queryText) {
+      const statement = {
+        bind() {
+          return statement;
+        },
+        async first() {
+          return queryText.includes("SELECT quotes_json") ? null : { request_count: 1 };
+        },
+        async run() {
+          return { success: true };
+        },
+      };
+      return statement;
+    },
+  };
+}
+
 function tgjuHistory(points) {
   return '$("#ChartBlock-3").msHighcharts({ chartData: ' + JSON.stringify(points) + ', chartType: "line" });';
 }
@@ -154,7 +173,52 @@ test("public history does not spend a platform CoinGecko key without D1", async 
   const data = await response.json();
   assert.equal(response.status, 200);
   assert.equal(data.assets.bitcoin.coverage.status, "unavailable");
-  assert.equal(data.assets.bitcoin.coverage.reason, "provider-rate-limited");
+  assert.equal(data.assets.bitcoin.coverage.reason, "coingecko-demo-key-missing");
+});
+
+test("platform keys stay disabled if D1 exists without the session-signing secret", async () => {
+  const now = Date.now();
+  const timestamps = [now - 86_400_000, now];
+  const platformKey = "platform-secret-requires-durable-session-security";
+  const platformRequests = [];
+  const env = {
+    API_USAGE_DB: databaseWithoutSessionSecurity(),
+    COINGECKO_DEMO_API_KEY: platformKey,
+    COINMARKETCAP_API_KEY: "cmc-platform-secret-requires-durable-session-security",
+  };
+  const responses = await withFetch(
+    async (input, options = {}) => {
+      const url = new URL(typeof input === "string" ? input : input.url);
+      if (url.hostname === "www.tgju.org")
+        return new Response(
+          '<td data-col="info.last_trade.PDrCotVal">2300000</td>' +
+            tgjuHistory(timestamps.map((timestamp) => [timestamp, 2_300_000])),
+          { status: 200 },
+        );
+      if (url.hostname === "www.bonbast.com") return new Response("token unavailable", { status: 200 });
+      if (url.hostname === "api.binance.com") return new Response("unavailable", { status: 503 });
+      if (url.hostname === "api.coingecko.com" || url.hostname === "pro-api.coinmarketcap.com") {
+        platformRequests.push({
+          host: url.hostname,
+          key: options.headers?.["x-cg-demo-api-key"] || options.headers?.["X-CMC_PRO_API_KEY"],
+        });
+        return new Response("unexpected platform key call", { status: 500 });
+      }
+      throw new Error(`Unexpected provider request: ${url.href}`);
+    },
+    async () => {
+      const market = await marketGet(context("/api/market?assets=bitcoin", { env }));
+      const history = await historyGet(context("/api/history?assets=bitcoin&range=all", { env }));
+      return { market, history };
+    },
+  );
+  const market = await responses.market.json();
+  const history = await responses.history.json();
+  assert.equal(responses.market.status, 200);
+  assert.equal(responses.history.status, 200);
+  assert.ok(market.diagnostics);
+  assert.equal(history.assets.bitcoin.coverage.reason, "coingecko-demo-key-missing");
+  assert.deepEqual(platformRequests, []);
 });
 
 test("FX and inflation references remain available without D1", async () => {
