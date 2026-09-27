@@ -10,16 +10,7 @@ function readCatalog(locale) {
 }
 
 function runtimeCatalog(locale) {
-  const catalog = createLocalizedCatalog(readCatalog("fa"), readCatalog(locale));
-  const runtimeCopy = JSON.parse(readFileSync(new URL("../content/runtime-copy.json", import.meta.url), "utf8"));
-  const localeIndex = { en: 0, ru: 1, zh: 2 }[locale];
-  catalog.phrases = {
-    ...catalog.phrases,
-    ...Object.fromEntries(
-      Object.entries(runtimeCopy).map(([source, translations]) => [source, translations[localeIndex]]),
-    ),
-  };
-  return catalog;
+  return createLocalizedCatalog(readCatalog("fa"), readCatalog(locale));
 }
 
 function assertCatalogCoverage(base, localized, path = "root") {
@@ -53,15 +44,14 @@ test("each static locale catalog contains the complete Persian base key shape", 
   }
 });
 
-test("runtime-rendered copy has an English, Russian, and Chinese translation", () => {
-  const runtimeCopy = JSON.parse(readFileSync(new URL("../content/runtime-copy.json", import.meta.url), "utf8"));
-  assert.ok(Object.keys(runtimeCopy).length >= 150, "runtime phrase inventory is unexpectedly small");
-  for (const [source, translations] of Object.entries(runtimeCopy)) {
-    assert.ok(/[\u0600-\u06ff]/u.test(source), "runtime phrase source should be Persian");
-    assert.equal(translations.length, 3, source + " needs all three alternate locales");
-    for (const [localeIndex, translation] of translations.entries()) {
-      assert.ok(translation.length > 0, source + " has an empty translation");
-      assert.doesNotMatch(translation, /[\u0600-\u06ff]/u, source + " has Persian in locale index " + localeIndex);
+test("runtime-rendered copy is part of each complete locale resource", () => {
+  for (const locale of ["en", "ru", "zh"]) {
+    const phrases = readCatalog(locale).phrases;
+    assert.ok(Object.keys(phrases).length >= 150, locale + " runtime phrase inventory is unexpectedly small");
+    for (const [source, translation] of Object.entries(phrases)) {
+      assert.ok(/[\u0600-\u06ff]/u.test(source), locale + " phrase source should be Persian");
+      assert.ok(translation.length > 0, locale + " has an empty translation for " + source);
+      assert.doesNotMatch(translation, /[\u0600-\u06ff]/u, locale + " leaves Persian in " + source);
     }
   }
 });
@@ -92,7 +82,6 @@ test("Persian runtime text literals and template fragments have alternate transl
   const visiblePersian = [...sources].filter(
     (value) => /[\u0600-\u06ff]/u.test(value) && /[\p{L}\p{M}]{2}/u.test(value),
   );
-  const runtimeCopy = JSON.parse(readFileSync(new URL("../content/runtime-copy.json", import.meta.url), "utf8"));
   for (const locale of ["en", "ru", "zh"]) {
     const phrases = runtimeCatalog(locale).phrases;
     for (const source of visiblePersian)
@@ -102,7 +91,7 @@ test("Persian runtime text literals and template fragments have alternate transl
         `${locale} leaves a runtime source literal untranslated: ${source}`,
       );
   }
-  assert.ok(Object.keys(runtimeCopy).length >= 150, "runtime phrase inventory is unexpectedly small");
+  assert.ok(Object.keys(runtimeCatalog("en").phrases).length >= 150, "runtime phrase inventory is unexpectedly small");
 });
 
 test("visible page copy and accessibility text translate without Persian remnants", () => {

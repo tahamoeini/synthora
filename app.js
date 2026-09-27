@@ -4529,30 +4529,17 @@ async function loadCopy() {
   const requestId = ++copyRequestId;
   const locale = uiPreferences.locale;
   try {
-    const [baseResponse, localeResponse, runtimeResponse] = await Promise.all([
+    const [baseResponse, localeResponse] = await Promise.all([
       fetch("content/fa.json", { cache: "no-store" }),
       locale === "fa"
         ? fetch("content/fa.json", { cache: "no-store" })
         : fetch("content/" + locale + ".json", { cache: "no-store" }),
-      fetch("content/runtime-copy.json", { cache: "no-store" }).catch(() => null),
     ]);
     if (!baseResponse.ok || !localeResponse.ok) throw new Error("Copy request failed");
     const baseCopy = await baseResponse.json();
     const localizedCopy = await localeResponse.json();
     if (requestId !== copyRequestId) return;
     copy = createLocalizedCatalog(baseCopy, localizedCopy);
-    if (runtimeResponse?.ok && locale !== "fa") {
-      const runtimeCopy = await runtimeResponse.json();
-      const localeIndex = { en: 0, ru: 1, zh: 2 }[locale];
-      copy.phrases = {
-        ...copy.phrases,
-        ...Object.fromEntries(
-          Object.entries(runtimeCopy)
-            .filter(([, translations]) => Array.isArray(translations) && typeof translations[localeIndex] === "string")
-            .map(([source, translations]) => [source, translations[localeIndex]]),
-        ),
-      };
-    }
   } catch {
     if (requestId !== copyRequestId) return;
     copy = fallbackCopy;
