@@ -719,7 +719,7 @@
     "ذخیره‌ی کلید CoinGecko": "Save CoinGecko key",
     "ذخیره‌ی کلید CoinMarketCap": "Save CoinMarketCap key",
     "پاک‌کردن": "Clear",
-    "منابع عمومی Coinbase، Nobitex و CoinMarketCap بدون کلید کار می‌کنند. با کلید اختیاری، CoinGecko و نسخه‌ی احراز هویت‌شده‌ی CoinMarketCap هم در کنار آن‌ها درخواست می‌شوند؛ هر کلید فقط در هدر سرور همان منبع فرستاده می‌شود.": "Public Coinbase, Nobitex, and CoinMarketCap sources work without a key. Optional keys also enable CoinGecko and authenticated CoinMarketCap requests; each key is sent only in that provider's server-side request header.",
+    "منابع عمومی نوبیتکس و Binance بدون کلید کار می‌کنند؛ نرخ USDT از خود نوبیتکس گرفته می‌شود و با دلار یکی فرض نمی‌شود. CoinMarketCap عمومی نیز درخواست می‌شود. با کلید اختیاری، CoinGecko و نسخه‌ی احراز هویت‌شده‌ی CoinMarketCap هم فعال می‌شوند؛ هر کلید فقط در هدر سرور همان منبع فرستاده می‌شود.": "Public Nobitex and Binance sources work without a key. The USDT rate comes from Nobitex itself and is not assumed to equal USD. Public CoinMarketCap is also queried. Optional keys enable CoinGecko and authenticated CoinMarketCap requests; each key is sent only in that provider's server-side request header.",
     "کلیدی ثبت نشده؛ در صورت نیاز، کلید این منبع را وارد کن.": "No key saved. Enter a key for this source if you want to use it.",
     "کلید معتبر وارد کن؛ مقدار خالی یا دارای نویسه‌ی کنترلی پذیرفته نمی‌شود.": "Enter a valid key. Empty values and control characters are not accepted.",
     "مرورگر اجازه‌ی ذخیره نداد؛ کلید ذخیره نشد.": "The browser did not allow storage. The key was not saved.",

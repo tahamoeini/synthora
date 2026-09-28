@@ -20,7 +20,6 @@ const COINMARKETCAP_QUOTES_URL = "https://pro-api.coinmarketcap.com/v1/cryptocur
 const COINMARKETCAP_PUBLIC_URL = "https://pro-api.coinmarketcap.com/public-api/v2/simple/price";
 const BINANCE_TICKER_URL = "https://api.binance.com/api/v3/ticker/24hr";
 const NOBITEX_STATS_URL = "https://api.nobitex.ir/market/stats";
-const COINBASE_SPOT_URL = "https://api.coinbase.com/v2/prices";
 const METALS_LIVE_URL = "https://api.metals.live/v1/spot";
 const YAHOO_METAL_CHART_BASE = "https://query1.finance.yahoo.com/v8/finance/chart/";
 const TSETMC_INDEX_URL = "https://cdn.tsetmc.com/api/Index/GetIndexB1LastDay";
@@ -477,7 +476,9 @@ async function providerCryptoBinance(requested = ["bitcoin", "ethereum"]) {
 
 async function providerNobitex(requested = ["bitcoin", "ethereum", "tether"]) {
   const mapping = { bitcoin: "btc", ethereum: "eth", tether: "usdt" };
-  const selected = Object.entries(mapping).filter(([asset]) => requested.includes(asset));
+  const requestedAssets = new Set(requested);
+  if (requestedAssets.has("bitcoin") || requestedAssets.has("ethereum")) requestedAssets.add("tether");
+  const selected = Object.entries(mapping).filter(([asset]) => requestedAssets.has(asset));
   if (!selected.length) return [];
   const url = new URL(NOBITEX_STATS_URL);
   // Request every Rial market in one call; Nobitex documents dstCurrency=rls
@@ -501,26 +502,6 @@ async function providerNobitex(requested = ["bitcoin", "ethereum", "tether"]) {
       });
     })
     .filter(Boolean);
-}
-
-async function providerCoinbase(requested = ["bitcoin", "ethereum", "tether"]) {
-  const mapping = { bitcoin: "BTC", ethereum: "ETH", tether: "USDT" };
-  const selected = Object.entries(mapping).filter(([asset]) => requested.includes(asset));
-  const results = await Promise.allSettled(
-    selected.map(async ([asset, symbol]) => {
-      const url = `${COINBASE_SPOT_URL}/${symbol}-USD/spot`;
-      const data = await fetchJson(url, { cf: { cacheTtl: 30, cacheEverything: true } });
-      if (data?.data?.currency !== "USD" || data?.data?.base !== symbol)
-        throw new Error("Coinbase returned an unexpected spot-price unit");
-      return quote(asset, parseNumber(data.data.amount), "Coinbase", {
-        sourceUrl: "https://docs.cdp.coinbase.com/coinbase-app/track-apis/prices",
-        unit: "coin",
-        currency: "USD",
-        quoteType: "direct",
-      });
-    }),
-  );
-  return results.filter((result) => result.status === "fulfilled").map((result) => result.value).filter(Boolean);
 }
 
 function nestedNumber(value, keys, depth = 0) {
@@ -999,9 +980,9 @@ export function parseRequestedAssets(urlLike) {
   );
 }
 
-function conversionDependency(dollarQuote) {
+function conversionDependency(dollarQuote, instrumentId = "dollar") {
   return {
-    instrumentId: "dollar",
+    instrumentId,
     status: dollarQuote?.status || "unavailable",
     confidence: dollarQuote?.confidence || "none",
     sourceCount: Number(dollarQuote?.sourceCount) || 0,
@@ -1011,18 +992,17 @@ function conversionDependency(dollarQuote) {
   };
 }
 
-function convertGlobalQuote(item, dollarQuote) {
-  // A USDT pair is not a USD quote. Without a verified USDT/TOMAN rate,
-  // multiplying it by the domestic dollar rate would invent a parity.
-  if (item?.currency !== "USD") return null;
-  if (!Number.isFinite(Number(dollarQuote?.price)) || Number(dollarQuote.price) <= 0) return null;
+function convertGlobalQuote(item, dollarQuote, tetherQuote) {
+  const conversion = item?.currency === "USD" ? dollarQuote : item?.currency === "USDT" ? tetherQuote : null;
+  const dependencyId = item?.currency === "USDT" ? "tether" : "dollar";
+  if (!Number.isFinite(Number(conversion?.price)) || Number(conversion.price) <= 0) return null;
   return {
     ...item,
-    price: item.price * dollarQuote.price,
+    price: item.price * conversion.price,
     currency: "TOMAN",
     quoteType: "derived",
-    derivedFrom: [`${item.asset}/USD`, "USD/TOMAN"],
-    conversionDependencies: [conversionDependency(dollarQuote)],
+    derivedFrom: [`${item.asset}/${item.currency}`, `${item.currency}/TOMAN`],
+    conversionDependencies: [conversionDependency(conversion, dependencyId)],
   };
 }
 
@@ -1128,13 +1108,6 @@ export async function onRequestGet(context = {}) {
       localOnly: true,
     },
     {
-      id: "coinbase",
-      run: () => providerCoinbase([...selected]),
-      assetIds: [...selected].filter((asset) => ["bitcoin", "ethereum", "tether"].includes(asset)),
-      enabled: wantsAny("bitcoin", "ethereum", "tether"),
-      localOnly: true,
-    },
-    {
       id: "binance",
       run: () => providerCryptoBinance([...selected]),
       assetIds: [...selected].filter((asset) => ["bitcoin", "ethereum"].includes(asset)),
@@ -1232,21 +1205,22 @@ export async function onRequestGet(context = {}) {
   }
 
   const preliminaryDollar = aggregate("dollar", primaryQuotes);
-  const rawGlobalQuotes = ["coinGecko", "coinMarketCap", "coinbase", "binance", "metalsLive", "tgjuMetals", "yahooMetals"].flatMap((id) => {
-    const result = providerResults.get(id);
-    return result?.status === "fulfilled" ? result.value.quotes : [];
-  });
-  const convertedGlobalQuotes = rawGlobalQuotes.map((item) => convertGlobalQuote(item, preliminaryDollar));
-  const excludedCurrencyQuotes = rawGlobalQuotes.filter((item, index) => !convertedGlobalQuotes[index]);
-  const currencyBlockedAssets = new Set(
-    excludedCurrencyQuotes.filter((item) => item.currency === "USD").map((item) => item.asset),
-  );
-  const globalQuotes = convertedGlobalQuotes.filter(Boolean);
-  const referenceQuotes = ["tsetmc", "tgjuIndex"].flatMap((id) => {
+  const rawGlobalQuotes = ["coinGecko", "coinMarketCap", "binance", "metalsLive", "tgjuMetals", "yahooMetals"].flatMap((id) => {
     const result = providerResults.get(id);
     return result?.status === "fulfilled" ? result.value.quotes : [];
   });
   const directLocalQuotes = ["nobitex"].flatMap((id) => {
+    const result = providerResults.get(id);
+    return result?.status === "fulfilled" ? result.value.quotes : [];
+  });
+  const preliminaryTether = aggregate("tether", directLocalQuotes);
+  const convertedGlobalQuotes = rawGlobalQuotes.map((item) =>
+    convertGlobalQuote(item, preliminaryDollar, preliminaryTether),
+  );
+  const excludedCurrencyQuotes = rawGlobalQuotes.filter((item, index) => !convertedGlobalQuotes[index]);
+  const currencyBlockedAssets = new Set(excludedCurrencyQuotes.map((item) => item.asset));
+  const globalQuotes = convertedGlobalQuotes.filter(Boolean);
+  const referenceQuotes = ["tsetmc", "tgjuIndex"].flatMap((id) => {
     const result = providerResults.get(id);
     return result?.status === "fulfilled" ? result.value.quotes : [];
   });
@@ -1434,7 +1408,6 @@ export async function onRequestGet(context = {}) {
         { id: "coinGecko", name: "CoinGecko", url: COINGECKO_SIMPLE_URL },
         { id: "coinMarketCap", name: "CoinMarketCap", url: COINMARKETCAP_PUBLIC_URL },
         { id: "nobitex", name: "Nobitex public market stats", url: NOBITEX_STATS_URL },
-        { id: "coinbase", name: "Coinbase public spot price", url: "https://api.coinbase.com/v2/prices" },
         { id: "binance", name: "Binance public ticker", url: BINANCE_TICKER_URL },
         { id: "metalsLive", name: "Metals.live", url: METALS_LIVE_URL },
         { id: "tgjuMetals", name: "TGJU global metals", url: "https://www.tgju.org/profile/" },

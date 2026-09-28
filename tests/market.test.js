@@ -175,13 +175,11 @@ test("public crypto quotes work without keys, a session database, or sync", asyn
         }),
         { status: 200 },
       );
-    if (url.hostname === "api.coinbase.com") {
-      const base = url.pathname.split("/").at(-2).split("-")[0];
-      return new Response(JSON.stringify({ data: { amount: base === "BTC" ? "60000" : "1", base, currency: "USD" } }), {
-        status: 200,
-      });
-    }
-    if (url.hostname === "api.binance.com") return new Response("unavailable", { status: 503 });
+    if (url.hostname === "api.binance.com")
+      return new Response(
+        JSON.stringify([{ symbol: "BTCUSDT", lastPrice: "60000", priceChangePercent: "1", closeTime: Date.now() }]),
+        { status: 200 },
+      );
     throw new Error(`Unexpected request: ${url.href}`);
   };
   try {
@@ -193,17 +191,17 @@ test("public crypto quotes work without keys, a session database, or sync", asyn
     assert.equal(response.status, 200);
     assert.equal(data.assets.bitcoin.price, 3000000000);
     assert.equal(data.assets.bitcoin.sourceCount, 3);
-    assert.deepEqual(new Set(data.assets.bitcoin.sources), new Set(["Coinbase", "CoinMarketCap", "Nobitex"]));
+    assert.deepEqual(new Set(data.assets.bitcoin.sources), new Set(["Binance", "CoinMarketCap", "Nobitex"]));
     assert.equal(data.assets.tether.price, 50000);
     assert.ok(data.assets.tether.sourceCount >= 2);
-    assert.equal(data.diagnostics.assets.bitcoin.attempted, 4);
+    assert.equal(data.diagnostics.assets.bitcoin.attempted, 3);
     assert.deepEqual(
       new Set(data.diagnostics.assets.bitcoin.attemptedProviders),
-      new Set(["coinMarketCap", "nobitex", "coinbase", "binance"]),
+      new Set(["coinMarketCap", "nobitex", "binance"]),
     );
     assert.equal(data.diagnostics.providers.coinMarketCap.quoteCount, 2);
     assert.equal(data.diagnostics.providers.nobitex.quoteCount, 2);
-    assert.equal(data.diagnostics.providers.coinbase.quoteCount, 2);
+    assert.equal(data.diagnostics.providers.binance.quoteCount, 1);
     assert.equal(requested.some((url) => url.hostname === "api.coingecko.com"), false);
     assert.equal(requested.some((url) => url.hostname === "api.nobitex.ir" && url.searchParams.get("dstCurrency") === "rls"), true);
     assert.equal(requested.some((url) => url.hostname === "api.nobitex.ir" && url.searchParams.has("srcCurrency")), false);
@@ -403,8 +401,8 @@ test("USDT exchange pairs are not converted as if USDT were USD cash", async () 
     assert.equal(data.assets.bitcoin.sourceCount, 1);
     assert.deepEqual(data.assets.bitcoin.sources, ["CoinGecko"]);
     assert.equal(data.diagnostics.providers.binance.status, "fulfilled");
-    assert.equal(data.diagnostics.assets.bitcoin.attempted, 5);
-    assert.equal(data.diagnostics.assets.bitcoin.attemptedProviders.length, 5);
+    assert.equal(data.diagnostics.assets.bitcoin.attempted, 4);
+    assert.equal(data.diagnostics.assets.bitcoin.attemptedProviders.length, 4);
     assert.equal(data.diagnostics.assets.bitcoin.excludedForCurrency, 1);
   } finally {
     globalThis.fetch = originalFetch;
