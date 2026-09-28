@@ -362,6 +362,16 @@ export function selectedProviderKey(request, env) {
   };
 }
 
+export function selectedCoinMarketCapKey(request, env) {
+  const userKey = String(request?.headers?.get("x-coinmarketcap-api-key") || "").trim();
+  if (userKey.length > 0 && userKey.length <= 300 && !/[\r\n\0]/.test(userKey))
+    return { key: userKey, userSupplied: true };
+  return {
+    key: typeof env?.COINMARKETCAP_API_KEY === "string" ? env.COINMARKETCAP_API_KEY.trim() : "",
+    userSupplied: false,
+  };
+}
+
 export function securityJson(body, status = 200, headers = {}) {
   return jsonResponse(body, status, headers);
 }

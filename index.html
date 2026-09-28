@@ -1358,19 +1358,47 @@
                   <span class="info-chip">اختیاری</span>
                 </div>
                 <p>
-                  کلید CoinGecko Demo را برای دریافت قیمت و تاریخچه‌ی رمزدارایی وارد کن. اگر وارد شود، کلید تو به‌جای
-                  کلید پلتفرم استفاده می‌شود و فقط از مسیر سرور در هدر ارسال می‌شود.
+                  منابع عمومی Coinbase، Nobitex و CoinMarketCap بدون کلید کار می‌کنند. با کلید اختیاری، CoinGecko و
+                  نسخه‌ی احراز هویت‌شده‌ی CoinMarketCap هم در کنار آن‌ها درخواست می‌شوند؛ هر کلید فقط در هدر سرور
+                  همان منبع فرستاده می‌شود.
                 </p>
                 <div class="field">
-                  <label for="provider-api-key">کلید CoinGecko Demo</label
+                  <label for="provider-api-key-coingecko">کلید CoinGecko Demo</label
                   ><input
-                    id="provider-api-key"
+                    id="provider-api-key-coingecko"
+                    data-provider-key-input="coingecko"
                     type="password"
                     dir="ltr"
                     autocomplete="off"
                     maxlength="300"
                     placeholder="کلید را وارد کن"
                   />
+                  <div class="settings-actions">
+                    <button class="secondary-button" type="button" data-provider-key-save="coingecko">ذخیره‌ی کلید CoinGecko</button>
+                    <button class="text-button" type="button" data-provider-key-clear="coingecko">پاک‌کردن</button>
+                  </div>
+                  <div id="provider-key-status-coingecko" class="transfer-status transfer-neutral" role="status" aria-live="polite">
+                    کلیدی ثبت نشده؛ در صورت نیاز، کلید این منبع را وارد کن.
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="provider-api-key-coinmarketcap">کلید CoinMarketCap</label
+                  ><input
+                    id="provider-api-key-coinmarketcap"
+                    data-provider-key-input="coinmarketcap"
+                    type="password"
+                    dir="ltr"
+                    autocomplete="off"
+                    maxlength="300"
+                    placeholder="کلید را وارد کن"
+                  />
+                  <div class="settings-actions">
+                    <button class="secondary-button" type="button" data-provider-key-save="coinmarketcap">ذخیره‌ی کلید CoinMarketCap</button>
+                    <button class="text-button" type="button" data-provider-key-clear="coinmarketcap">پاک‌کردن</button>
+                  </div>
+                  <div id="provider-key-status-coinmarketcap" class="transfer-status transfer-neutral" role="status" aria-live="polite">
+                    کلیدی ثبت نشده؛ در صورت نیاز، کلید این منبع را وارد کن.
+                  </div>
                 </div>
                 <div class="field">
                   <label for="provider-key-storage">مدت نگهداری کلید</label
@@ -1383,19 +1411,16 @@
                     نمی‌گیرد.</small
                   >
                 </div>
-                <div class="settings-actions">
-                  <button class="secondary-button" type="submit">ذخیره‌ی کلید</button
-                  ><button id="provider-key-clear" class="text-button" type="button">پاک‌کردن کلید</button>
-                </div>
-                <div id="provider-key-status" class="transfer-status transfer-neutral" role="status" aria-live="polite">
-                  برای CoinGecko Demo از راهنمای رسمی دریافت کلید استفاده کن.
-                </div>
                 <p class="small-note">
                   <a
                     href="https://support.coingecko.com/hc/en-us/articles/21880397454233-User-Guide-How-to-sign-up-for-CoinGecko-Demo-API-and-generate-an-API-key"
                     target="_blank"
                     rel="noopener noreferrer"
                     >راهنمای رسمی ساخت کلید CoinGecko Demo</a
+                  >
+                  ·
+                  <a href="https://coinmarketcap.com/api/documentation/pro-api-reference/cryptocurrency" target="_blank" rel="noopener noreferrer"
+                    >راهنمای رسمی CoinMarketCap</a
                   >
                   ·
                   <a href="docs/cloudflare-market-api.md" target="_blank" rel="noopener noreferrer"

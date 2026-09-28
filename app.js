@@ -69,6 +69,8 @@ const SETTINGS_KEY = "synthora-model-settings-v1";
 const MARKET_API_KEY_SESSION = "synthora-coingecko-key-session";
 const MARKET_API_KEY_DEVICE = "synthora-coingecko-key-device";
 const MARKET_API_KEY_MODE = "synthora-coingecko-key-mode";
+const MARKET_CMC_KEY_SESSION = "synthora-coinmarketcap-key-session";
+const MARKET_CMC_KEY_DEVICE = "synthora-coinmarketcap-key-device";
 const INFLATION_CACHE_KEY = "synthora-inflation-cache-v1";
 const HISTORY_MARKET_CACHE_KEY = "synthora-history-market-cache-v1";
 const HISTORY_LIMIT = 60;
@@ -142,6 +144,7 @@ let analysisRequestId = 0;
 let legacyEmergencyFund = "partial";
 let modelSettings;
 let providerApiKey = "";
+let providerCoinMarketCapKey = "";
 let providerKeyStorageMode = "session";
 let apiSessionReady = null;
 let syncCredentials = null;
@@ -734,6 +737,8 @@ function providerRequestHeaders() {
   const headers = {};
   if (providerApiKey && providerApiKey.length <= 300 && !/[\r\n\0]/.test(providerApiKey))
     headers["X-CoinGecko-API-Key"] = providerApiKey;
+  if (providerCoinMarketCapKey && providerCoinMarketCapKey.length <= 300 && !/[\r\n\0]/.test(providerCoinMarketCapKey))
+    headers["X-CoinMarketCap-API-Key"] = providerCoinMarketCapKey;
   return headers;
 }
 
@@ -747,45 +752,71 @@ function restoreProviderApiKey() {
         : providerKeyStorageMode === "session"
           ? sessionStorage.getItem(MARKET_API_KEY_SESSION) || ""
           : "";
+    providerCoinMarketCapKey =
+      providerKeyStorageMode === "device"
+        ? localStorage.getItem(MARKET_CMC_KEY_DEVICE) || ""
+        : providerKeyStorageMode === "session"
+          ? sessionStorage.getItem(MARKET_CMC_KEY_SESSION) || ""
+          : "";
   } catch {
     providerApiKey = "";
+    providerCoinMarketCapKey = "";
     providerKeyStorageMode = "page";
   }
   const mode = $("#provider-key-storage");
   if (mode) mode.value = providerKeyStorageMode;
-  const status = $("#provider-key-status");
-  if (status) {
-    status.textContent = providerApiKey
-      ? `کلید برای ${providerKeyStorageMode === "device" ? "این دستگاه" : "این نشست مرورگر"} ذخیره است.`
-      : "کلیدی ثبت نشده؛ در صورت نیاز، کلید CoinGecko Demo را وارد کن.";
+  [
+    ["coingecko", providerApiKey],
+    ["coinmarketcap", providerCoinMarketCapKey],
+  ].forEach(([provider, key]) => {
+    const status = $(`#provider-key-status-${provider}`);
+    if (!status) return;
+    status.textContent = key
+      ? text(
+          providerKeyStorageMode === "device" ? "کلید روی همین دستگاه ذخیره است." : "کلید تا پایان نشست مرورگر ذخیره است.",
+          providerKeyStorageMode === "device" ? "Key is saved on this device." : "Key is saved for this browser session.",
+        )
+      : text("کلیدی ثبت نشده؛ در صورت نیاز، کلید این منبع را وارد کن.");
     status.className = "transfer-status transfer-neutral";
-  }
+  });
 }
 
 function saveProviderApiKey(event) {
-  event.preventDefault();
-  const input = $("#provider-api-key");
+  if (event.currentTarget?.id === "provider-key-form") event.preventDefault();
+  const provider =
+    event.currentTarget?.dataset.providerKeySave || document.activeElement?.dataset.providerKeyInput;
+  if (!["coingecko", "coinmarketcap"].includes(provider)) return;
+  const isCoinMarketCap = provider === "coinmarketcap";
+  const input = $(`#provider-api-key-${provider}`);
   const key = String(input?.value || "").trim();
-  const status = $("#provider-key-status");
+  const status = $(`#provider-key-status-${provider}`);
   if (!key || key.length > 300 || /[\r\n\0]/.test(key)) {
     if (status) {
-      status.textContent = "کلید معتبر وارد کن؛ مقدار خالی یا دارای نویسه‌ی کنترلی پذیرفته نمی‌شود.";
+      status.textContent = text("کلید معتبر وارد کن؛ مقدار خالی یا دارای نویسه‌ی کنترلی پذیرفته نمی‌شود.");
       status.className = "transfer-status transfer-warning";
     }
     return;
   }
-  providerApiKey = key;
+  if (isCoinMarketCap) providerCoinMarketCapKey = key;
+  else providerApiKey = key;
   providerKeyStorageMode = $("#provider-key-storage")?.value || "session";
   try {
-    sessionStorage.removeItem(MARKET_API_KEY_SESSION);
-    localStorage.removeItem(MARKET_API_KEY_DEVICE);
+    [MARKET_API_KEY_SESSION, MARKET_CMC_KEY_SESSION].forEach((storageKey) => sessionStorage.removeItem(storageKey));
+    [MARKET_API_KEY_DEVICE, MARKET_CMC_KEY_DEVICE].forEach((storageKey) => localStorage.removeItem(storageKey));
     localStorage.setItem(MARKET_API_KEY_MODE, providerKeyStorageMode);
-    if (providerKeyStorageMode === "session") sessionStorage.setItem(MARKET_API_KEY_SESSION, key);
-    if (providerKeyStorageMode === "device") localStorage.setItem(MARKET_API_KEY_DEVICE, key);
+    if (providerKeyStorageMode === "session") {
+      if (providerApiKey) sessionStorage.setItem(MARKET_API_KEY_SESSION, providerApiKey);
+      if (providerCoinMarketCapKey) sessionStorage.setItem(MARKET_CMC_KEY_SESSION, providerCoinMarketCapKey);
+    }
+    if (providerKeyStorageMode === "device") {
+      if (providerApiKey) localStorage.setItem(MARKET_API_KEY_DEVICE, providerApiKey);
+      if (providerCoinMarketCapKey) localStorage.setItem(MARKET_CMC_KEY_DEVICE, providerCoinMarketCapKey);
+    }
   } catch {
-    providerApiKey = "";
+    if (isCoinMarketCap) providerCoinMarketCapKey = "";
+    else providerApiKey = "";
     if (status) {
-      status.textContent = "مرورگر اجازه‌ی ذخیره نداد؛ کلید ذخیره نشد.";
+      status.textContent = text("مرورگر اجازه‌ی ذخیره نداد؛ کلید ذخیره نشد.");
       status.className = "transfer-status transfer-warning";
     }
     return;
@@ -794,32 +825,37 @@ function saveProviderApiKey(event) {
   if (status) {
     status.textContent =
       providerKeyStorageMode === "page"
-        ? "کلید فقط تا وقتی همین صفحه باز است نگه داشته می‌شود."
+        ? text("کلید فقط تا وقتی همین صفحه باز است نگه داشته می‌شود.")
         : providerKeyStorageMode === "device"
-          ? "کلید روی همین دستگاه ذخیره شد."
-          : "کلید تا پایان نشست مرورگر ذخیره شد.";
+          ? text("کلید روی همین دستگاه ذخیره شد.")
+          : text("کلید تا پایان نشست مرورگر ذخیره شد.");
     status.className = "transfer-status transfer-success";
   }
   loadMarket();
 }
 
-function clearProviderApiKey() {
-  providerApiKey = "";
+function clearProviderApiKey(event) {
+  const provider = event.currentTarget?.dataset.providerKeyClear;
+  if (!["coingecko", "coinmarketcap"].includes(provider)) return;
+  const isCoinMarketCap = provider === "coinmarketcap";
+  if (isCoinMarketCap) providerCoinMarketCapKey = "";
+  else providerApiKey = "";
+  const storageKeys = isCoinMarketCap
+    ? { session: MARKET_CMC_KEY_SESSION, device: MARKET_CMC_KEY_DEVICE }
+    : { session: MARKET_API_KEY_SESSION, device: MARKET_API_KEY_DEVICE };
   try {
-    sessionStorage.removeItem(MARKET_API_KEY_SESSION);
-    localStorage.removeItem(MARKET_API_KEY_DEVICE);
-    localStorage.removeItem(MARKET_API_KEY_MODE);
+    sessionStorage.removeItem(storageKeys.session);
+    localStorage.removeItem(storageKeys.device);
   } catch {
     /* Storage may be unavailable; the in-memory key is still cleared. */
   }
-  providerKeyStorageMode = "session";
-  if ($("#provider-api-key")) $("#provider-api-key").value = "";
-  if ($("#provider-key-storage")) $("#provider-key-storage").value = "session";
-  const status = $("#provider-key-status");
+  if ($(`#provider-api-key-${provider}`)) $(`#provider-api-key-${provider}`).value = "";
+  const status = $(`#provider-key-status-${provider}`);
   if (status) {
-    status.textContent = "کلید از حافظه‌ی برنامه پاک شد.";
+    status.textContent = text("کلید از حافظه‌ی برنامه پاک شد.");
     status.className = "transfer-status transfer-success";
   }
+  loadMarket();
 }
 
 function setSyncStatus(message, type = "neutral") {
@@ -1862,8 +1898,11 @@ function renderMarketDiagnostics(data) {
     providerC: "Navasan",
     auxiliary: "ChartGoldPrice",
     coinGecko: "CoinGecko",
+    coinMarketCap: "CoinMarketCap",
+    nobitex: "Nobitex",
     binance: "Binance",
     metalsLive: "Metals.live",
+    tgjuMetals: "TGJU · فلزات جهانی",
     yahooMetals: "Yahoo Finance",
     tsetmc: "TSETMC",
     tgjuIndex: "TGJU · شاخص کل",
@@ -4681,7 +4720,8 @@ function bindEvents() {
   $("#settings-model-form")?.addEventListener("submit", saveModelSettingsForm);
   $("#refresh-inflation")?.addEventListener("click", refreshInflationAssumption);
   $("#provider-key-form")?.addEventListener("submit", saveProviderApiKey);
-  $("#provider-key-clear")?.addEventListener("click", clearProviderApiKey);
+  $$('[data-provider-key-save]').forEach((button) => button.addEventListener("click", saveProviderApiKey));
+  $$('[data-provider-key-clear]').forEach((button) => button.addEventListener("click", clearProviderApiKey));
   $("#sync-create")?.addEventListener("click", () => void createEncryptedSync());
   $("#sync-connect")?.addEventListener("click", () => void connectEncryptedSync());
   $("#sync-upload")?.addEventListener("click", () => void uploadLocalSyncSnapshot());

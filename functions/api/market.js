@@ -5,6 +5,7 @@ import {
   hasDurableSessionSecurity,
   readPlatformProviderCache,
   reservePlatformProviderRequest,
+  selectedCoinMarketCapKey,
   selectedProviderKey,
   writePlatformProviderCache,
   waitForPlatformProviderCache,
@@ -16,12 +17,20 @@ const NAVASAN_RAW_BASE = "https://raw.githubusercontent.com/HosseinOdd/Navasan-A
 const CHART_GOLD_URL = "https://www.chartgoldprice.com/api/data?history=both";
 const COINGECKO_SIMPLE_URL = "https://api.coingecko.com/api/v3/simple/price";
 const COINMARKETCAP_QUOTES_URL = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest";
+const COINMARKETCAP_PUBLIC_URL = "https://pro-api.coinmarketcap.com/public-api/v2/simple/price";
 const BINANCE_TICKER_URL = "https://api.binance.com/api/v3/ticker/24hr";
+const NOBITEX_STATS_URL = "https://api.nobitex.ir/market/stats";
+const COINBASE_SPOT_URL = "https://api.coinbase.com/v2/prices";
 const METALS_LIVE_URL = "https://api.metals.live/v1/spot";
 const YAHOO_METAL_CHART_BASE = "https://query1.finance.yahoo.com/v8/finance/chart/";
 const TSETMC_INDEX_URL = "https://cdn.tsetmc.com/api/Index/GetIndexB1LastDay";
 const TROY_OUNCE_TO_GRAMS = 31.1034768;
 const sourcePages = { dollar: "price_dollar_rl", gold: "geram18", silver: "silver_999" };
+const tgjuGlobalMetalPages = {
+  platinum: { page: "platinum", divisor: TROY_OUNCE_TO_GRAMS },
+  palladium: { page: "palladium", divisor: TROY_OUNCE_TO_GRAMS },
+  copper: { page: "base_global_copper", divisor: 1_000_000 },
+};
 const fundPages = { fixedIncome: "https://charisma.ir/funds/fixedincomefund" };
 // Keep each upstream bounded so parallel sources fit the interactive budget.
 const UPSTREAM_TIMEOUT_MS = 1800;
@@ -38,7 +47,7 @@ const CONFIGURED_SOURCE_COUNTS = Object.freeze({
   silver: 3,
   bitcoin: 3,
   ethereum: 3,
-  tether: 2,
+  tether: 3,
   platinum: 2,
   palladium: 2,
   copper: 2,
@@ -126,6 +135,15 @@ function quote(asset, price, source, metadata = {}) {
 
 function isPositiveNumber(value) {
   return Number.isFinite(Number(value)) && Number(value) > 0;
+}
+
+function safeProviderFailureCode(error) {
+  if (error?.name === "AbortError") return "timeout";
+  if (Number(error?.status) === 429) return "rate_limited";
+  if ([401, 403].includes(Number(error?.status))) return "access_denied";
+  if (Number(error?.status) >= 500) return "upstream_unavailable";
+  if (error?.message === "Source returned invalid JSON") return "invalid_response";
+  return "request_failed";
 }
 
 async function fetchContent(url, options = {}, read = (response) => response.text()) {
@@ -290,7 +308,10 @@ async function providerCrypto(
     `?ids=${selected.map(([id]) => id).join(",")}&vs_currencies=usd&include_24hr_change=true&include_last_updated_at=true`;
   const fetchQuotes = async () => {
     if (!apiKey) throw new Error("coingecko-demo-key-missing");
-    const data = await fetchJson(url, { headers: { "x-cg-demo-api-key": apiKey } });
+    const data = await fetchJson(url, {
+      headers: { "x-cg-demo-api-key": apiKey },
+      cf: { cacheTtl: 0, cacheEverything: false },
+    });
     return selected
       .map(([id, asset]) => {
         const item = data && data[id];
@@ -319,31 +340,46 @@ async function providerCrypto(
   });
 }
 
-async function providerCoinMarketCap(requested, env) {
-  if (!hasDurableSessionSecurity(env)) throw new Error("platform-key-security-not-configured");
-  const apiKey = typeof env?.COINMARKETCAP_API_KEY === "string" ? env.COINMARKETCAP_API_KEY.trim() : "";
+async function providerCoinMarketCap(requested, env, userKey = "", userSuppliedKey = false) {
   const mapping = { bitcoin: "bitcoin", ethereum: "ethereum", tether: "tether" };
   const selected = Object.entries(mapping).filter(([, asset]) => requested.includes(asset));
   if (!selected.length) return { quotes: [], cacheStatus: "skipped" };
-  if (!apiKey) return { quotes: [], cacheStatus: "skipped" };
-  const slugs = selected.map(([slug]) => slug).join(",");
-  const url = `${COINMARKETCAP_QUOTES_URL}?slug=${encodeURIComponent(slugs)}&convert=USD`;
+  const apiKey = userSuppliedKey
+    ? userKey
+    : typeof env?.COINMARKETCAP_API_KEY === "string"
+      ? env.COINMARKETCAP_API_KEY.trim()
+      : "";
+  const symbols = Object.fromEntries(selected.map(([, asset]) => [asset, asset === "bitcoin" ? "BTC" : asset === "ethereum" ? "ETH" : "USDT"]));
+  const url = apiKey
+    ? `${COINMARKETCAP_QUOTES_URL}?slug=${encodeURIComponent(selected.map(([slug]) => slug).join(","))}&convert=USD`
+    : `${COINMARKETCAP_PUBLIC_URL}?symbol=${encodeURIComponent(Object.values(symbols).join(","))}&convert=USD`;
   const fetchQuotes = async () => {
-    if (!apiKey) throw new Error("coinmarketcap-key-missing");
     const data = await fetchJson(url, {
-      headers: { "X-CMC_PRO_API_KEY": apiKey },
-      cf: { cacheTtl: 900, cacheEverything: true },
+      ...(apiKey ? { headers: { "X-CMC_PRO_API_KEY": apiKey } } : {}),
+      cf: apiKey ? { cacheTtl: 0, cacheEverything: false } : { cacheTtl: 60, cacheEverything: true },
     });
-    const rows = Object.values(data?.data || {}).flatMap((row) => (Array.isArray(row) ? row : [row]));
+    const rows = Array.isArray(data?.data)
+      ? data.data
+      : Object.values(data?.data || {}).flatMap((row) => (Array.isArray(row) ? row : [row]));
     return rows
       .map((item) => {
-        const asset = item?.slug;
+        const asset =
+          item?.slug ||
+          selected.find(([, selectedAsset]) => symbols[selectedAsset] === item?.symbol)?.[1];
         if (!selected.some(([, selectedAsset]) => selectedAsset === asset)) return null;
-        const usd = parseNumber(item?.quote?.USD?.price);
+      const usd = parseNumber(
+        item?.price ?? item?.quote?.USD?.price ?? item?.quotes?.find((row) => row.symbol === "USD")?.price,
+      );
         return quote(asset, usd, "CoinMarketCap", {
-          changePct: parseNumber(item?.quote?.USD?.percent_change_24h),
-          sourceUrl: url,
-          sourceTime: item?.quote?.USD?.last_updated || item?.last_updated || null,
+          changePct: parseNumber(
+            item?.quote?.USD?.percent_change_24h ?? item?.quotes?.find((row) => row.symbol === "USD")?.percent_change_24h,
+          ),
+          sourceUrl: "https://coinmarketcap.com/api/documentation/pro-api-reference/cryptocurrency",
+          sourceTime:
+            item?.quote?.USD?.last_updated ||
+            item?.quotes?.find((row) => row.symbol === "USD")?.last_updated ||
+            item?.last_updated ||
+            null,
           unit: "coin",
           currency: "USD",
           quoteType: "direct",
@@ -351,6 +387,11 @@ async function providerCoinMarketCap(requested, env) {
       })
       .filter(Boolean);
   };
+  // A personal key is used only for this request and never enters the shared
+  // platform cache or durable quota coordinator.
+  if (userSuppliedKey) return { quotes: await fetchQuotes(), cacheStatus: "uncached" };
+  if (!apiKey) return { quotes: await fetchQuotes(), cacheStatus: "public" };
+  if (!hasDurableSessionSecurity(env)) throw new Error("platform-key-security-not-configured");
   return await loadPlatformProviderQuotes(env, "coinmarketcap", {
     maxAgeMs: 15 * 60_000,
     maxStaleMs: 24 * 60 * 60_000,
@@ -434,6 +475,54 @@ async function providerCryptoBinance(requested = ["bitcoin", "ethereum"]) {
     .filter(Boolean);
 }
 
+async function providerNobitex(requested = ["bitcoin", "ethereum", "tether"]) {
+  const mapping = { bitcoin: "btc", ethereum: "eth", tether: "usdt" };
+  const selected = Object.entries(mapping).filter(([asset]) => requested.includes(asset));
+  if (!selected.length) return [];
+  const url = new URL(NOBITEX_STATS_URL);
+  // Request every Rial market in one call; Nobitex documents dstCurrency=rls
+  // as the supported way to retrieve all Rial pairs.
+  url.searchParams.set("dstCurrency", "rls");
+  const data = await fetchJson(url.toString(), {
+    requestTimeoutMs: 1400,
+    cf: { cacheTtl: 30, cacheEverything: true },
+  });
+  if (data?.status !== "ok" || !data.stats || typeof data.stats !== "object")
+    throw new Error("Nobitex market response was unavailable");
+  return selected
+    .map(([asset, symbol]) => {
+      const row = data.stats[`${symbol}-rls`];
+      return quote(asset, parseNumber(row?.latest) / 10, "Nobitex", {
+        changePct: parseNumber(row?.dayChange),
+        sourceUrl: "https://apidocs.nobitex.ir/?shell=",
+        unit: "coin",
+        currency: "TOMAN",
+        quoteType: "direct",
+      });
+    })
+    .filter(Boolean);
+}
+
+async function providerCoinbase(requested = ["bitcoin", "ethereum", "tether"]) {
+  const mapping = { bitcoin: "BTC", ethereum: "ETH", tether: "USDT" };
+  const selected = Object.entries(mapping).filter(([asset]) => requested.includes(asset));
+  const results = await Promise.allSettled(
+    selected.map(async ([asset, symbol]) => {
+      const url = `${COINBASE_SPOT_URL}/${symbol}-USD/spot`;
+      const data = await fetchJson(url, { cf: { cacheTtl: 30, cacheEverything: true } });
+      if (data?.data?.currency !== "USD" || data?.data?.base !== symbol)
+        throw new Error("Coinbase returned an unexpected spot-price unit");
+      return quote(asset, parseNumber(data.data.amount), "Coinbase", {
+        sourceUrl: "https://docs.cdp.coinbase.com/coinbase-app/track-apis/prices",
+        unit: "coin",
+        currency: "USD",
+        quoteType: "direct",
+      });
+    }),
+  );
+  return results.filter((result) => result.status === "fulfilled").map((result) => result.value).filter(Boolean);
+}
+
 function nestedNumber(value, keys, depth = 0) {
   if (depth > 4 || value === null || value === undefined) return null;
   if (Array.isArray(value)) {
@@ -480,6 +569,30 @@ async function providerGlobalMetals() {
       });
     })
     .filter(Boolean);
+}
+
+async function providerTgjuGlobalMetals(requested = []) {
+  const results = await Promise.allSettled(
+    Object.entries(tgjuGlobalMetalPages)
+      .filter(([asset]) => requested.includes(asset))
+      .map(async ([asset, meta]) => {
+        const url = TGJU_BASE + meta.page;
+        const html = await fetchText(url);
+        const price = firstNumberAfter(html, 'data-col="info.last_trade.PDrCotVal"', 500);
+        if (!Number.isFinite(price) || price <= 0) throw new Error("TGJU global metal quote not found");
+        const changePct = firstNumberAfter(html, 'data-col="info.last_trade.last_change_percentage"', 300);
+        const serverTime = html.match(/id="server-time"[^>]+data-value="([^"]+)"/);
+        return quote(asset, price / meta.divisor, "TGJU Global", {
+          changePct,
+          sourceUrl: url,
+          sourceTime: serverTime ? serverTime[1] : null,
+          unit: "gram",
+          currency: "USD",
+          quoteType: "direct",
+        });
+      }),
+  );
+  return results.filter((result) => result.status === "fulfilled").map((result) => result.value).filter(Boolean);
 }
 
 async function providerYahooMetals(requested = ["platinum", "palladium", "copper"]) {
@@ -960,6 +1073,7 @@ export async function onRequestGet(context = {}) {
     : null;
   const serverCacheQuotes = serverSnapshot ? serverQuotesFromSnapshot(serverSnapshot, serverCacheAgeMs) : [];
   const selectedKey = selectedProviderKey(context.request, context.env);
+  const selectedCoinMarketCap = selectedCoinMarketCapKey(context.request, context.env);
   const providerKey =
     !hasDurableSessionSecurity(context.env) && !selectedKey.userSupplied ? { ...selectedKey, key: "" } : selectedKey;
   const derivedAssets = new Set(["gold", "silver", "bitcoin", "ethereum", "tether", "platinum", "palladium", "copper"]);
@@ -971,6 +1085,7 @@ export async function onRequestGet(context = {}) {
     {
       id: "providerA",
       run: () => providerA([...baseAssets]),
+      assetIds: [...baseAssets],
       providerKey: `providerA-${[...baseAssets].sort().join("-")}`,
       quotaProvider: "providerA",
       enabled: baseAssets.size > 0,
@@ -979,6 +1094,7 @@ export async function onRequestGet(context = {}) {
     {
       id: "providerB",
       run: providerB,
+      assetIds: [...baseAssets].filter((asset) => ["dollar", "gold"].includes(asset)),
       providerKey: "providerB",
       quotaProvider: "providerB",
       enabled: baseAssets.has("dollar") || baseAssets.has("gold"),
@@ -991,36 +1107,68 @@ export async function onRequestGet(context = {}) {
       id: "coinGecko",
       run: () => providerCrypto([...selected], providerKey.key, providerKey.userSupplied, context.env),
       coordinated: false,
-      enabled: wantsAny("bitcoin", "ethereum", "tether"),
+      assetIds: [...selected].filter((asset) => ["bitcoin", "ethereum", "tether"].includes(asset)),
+      enabled:
+        Boolean(providerKey.key) &&
+        (providerKey.userSupplied || hasDurableSessionSecurity(context.env)) &&
+        wantsAny("bitcoin", "ethereum", "tether"),
     },
     {
       id: "coinMarketCap",
-      run: () => providerCoinMarketCap([...selected], context.env),
+      run: () => providerCoinMarketCap([...selected], context.env, selectedCoinMarketCap.key, selectedCoinMarketCap.userSupplied),
       coordinated: false,
-      enabled:
-        hasDurableSessionSecurity(context.env) &&
-        Boolean(context.env?.COINMARKETCAP_API_KEY?.trim()) &&
-        wantsAny("bitcoin", "ethereum", "tether"),
+      assetIds: [...selected].filter((asset) => ["bitcoin", "ethereum", "tether"].includes(asset)),
+      enabled: wantsAny("bitcoin", "ethereum", "tether"),
+    },
+    {
+      id: "nobitex",
+      run: () => providerNobitex([...selected]),
+      assetIds: [...selected].filter((asset) => ["bitcoin", "ethereum", "tether"].includes(asset)),
+      enabled: wantsAny("bitcoin", "ethereum", "tether"),
+      localOnly: true,
+    },
+    {
+      id: "coinbase",
+      run: () => providerCoinbase([...selected]),
+      assetIds: [...selected].filter((asset) => ["bitcoin", "ethereum", "tether"].includes(asset)),
+      enabled: wantsAny("bitcoin", "ethereum", "tether"),
+      localOnly: true,
     },
     {
       id: "binance",
       run: () => providerCryptoBinance([...selected]),
+      assetIds: [...selected].filter((asset) => ["bitcoin", "ethereum"].includes(asset)),
       enabled: wantsAny("bitcoin", "ethereum"),
       localOnly: true,
     },
     {
       id: "metalsLive",
       run: providerGlobalMetals,
+      assetIds: [...selected].filter((asset) => ["silver", "platinum", "palladium", "copper"].includes(asset)),
       enabled: wantsAny("silver", "platinum", "palladium", "copper"),
+      localOnly: true,
+    },
+    {
+      id: "tgjuMetals",
+      run: () => providerTgjuGlobalMetals([...selected]),
+      assetIds: [...selected].filter((asset) => Object.hasOwn(tgjuGlobalMetalPages, asset)),
+      enabled: [...selected].some((asset) => Object.hasOwn(tgjuGlobalMetalPages, asset)),
       localOnly: true,
     },
     {
       id: "yahooMetals",
       run: () => providerYahooMetals([...selected]),
+      assetIds: [...selected].filter((asset) => ["platinum", "palladium", "copper"].includes(asset)),
       enabled: context.env?.YAHOO_METALS_LICENSE_CONFIRMED === "true" && wantsAny("platinum", "palladium", "copper"),
       localOnly: true,
     },
-    { id: "tsetmc", run: providerTsetmc, enabled: selected.has("bourseIndex"), localOnly: true },
+    {
+      id: "tsetmc",
+      run: providerTsetmc,
+      assetIds: selected.has("bourseIndex") ? ["bourseIndex"] : [],
+      enabled: selected.has("bourseIndex"),
+      localOnly: true,
+    },
   ].filter((provider) => provider.enabled);
   const activeDefinitions = [...primaryDefinitions, ...extendedDefinitions];
   const providerRuns = activeDefinitions.map(async (provider) => {
@@ -1084,7 +1232,7 @@ export async function onRequestGet(context = {}) {
   }
 
   const preliminaryDollar = aggregate("dollar", primaryQuotes);
-  const rawGlobalQuotes = ["coinGecko", "coinMarketCap", "binance", "metalsLive", "yahooMetals"].flatMap((id) => {
+  const rawGlobalQuotes = ["coinGecko", "coinMarketCap", "coinbase", "binance", "metalsLive", "tgjuMetals", "yahooMetals"].flatMap((id) => {
     const result = providerResults.get(id);
     return result?.status === "fulfilled" ? result.value.quotes : [];
   });
@@ -1098,7 +1246,11 @@ export async function onRequestGet(context = {}) {
     const result = providerResults.get(id);
     return result?.status === "fulfilled" ? result.value.quotes : [];
   });
-  const quotes = [...primaryQuotes, ...globalQuotes, ...referenceQuotes, ...serverCacheQuotes];
+  const directLocalQuotes = ["nobitex"].flatMap((id) => {
+    const result = providerResults.get(id);
+    return result?.status === "fulfilled" ? result.value.quotes : [];
+  });
+  const quotes = [...primaryQuotes, ...directLocalQuotes, ...globalQuotes, ...referenceQuotes, ...serverCacheQuotes];
   const auxiliaryAssets = ["gold", "silver"].filter((asset) => {
     if (!selected.has(asset)) return false;
     const status = aggregate(asset, quotes)?.status;
@@ -1168,15 +1320,20 @@ export async function onRequestGet(context = {}) {
       status: settled.status,
       quoteCount: settled.status === "fulfilled" ? settled.value.quotes.length : 0,
     };
+    if (settled.status === "rejected")
+      providerDiagnostics[provider.id].failureCode = safeProviderFailureCode(settled.reason);
     if (settled.status === "fulfilled" && settled.value.cacheStatus)
       providerDiagnostics[provider.id].cacheStatus = settled.value.cacheStatus;
   });
   providerDiagnostics.providerC = fallbackResult;
+  if (fallbackResult.status === "rejected") providerDiagnostics.providerC.failureCode = "request_failed";
   providerDiagnostics.tgjuIndex = {
     status: tgjuIndexOutcome.status,
     quoteCount: tgjuIndexOutcome.status === "fulfilled" ? tgjuIndexOutcome.value.quotes.length : 0,
+    ...(tgjuIndexOutcome.status === "rejected" ? { failureCode: "request_failed" } : {}),
   };
   providerDiagnostics.auxiliary = auxiliaryResult;
+  if (auxiliaryResult.status === "rejected") providerDiagnostics.auxiliary.failureCode = "request_failed";
   providerDiagnostics.fixedIncome = {
     status: fixedIncomeOutcome.status,
     quoteCount: fixedIncome ? 1 : 0,
@@ -1188,6 +1345,14 @@ export async function onRequestGet(context = {}) {
     maxAgeMs: SERVER_MARKET_CACHE_MAX_AGE_MS,
     ageMs: Number.isFinite(serverCacheAgeMs) ? Math.max(0, serverCacheAgeMs) : null,
   };
+
+  const attemptedProviders = new Map([...selected].map((asset) => [asset, new Set()]));
+  activeDefinitions.forEach((provider) => {
+    (provider.assetIds || []).forEach((asset) => attemptedProviders.get(asset)?.add(provider.id));
+  });
+  fallbackAssets.forEach((asset) => attemptedProviders.get(asset)?.add("providerC"));
+  if (tgjuIndexOutcome.status !== "skipped") attemptedProviders.get("bourseIndex")?.add("tgjuIndex");
+  auxiliaryAssets.forEach((asset) => attemptedProviders.get(asset)?.add("auxiliary"));
 
   const history = {};
   const tgjuHistory =
@@ -1225,12 +1390,9 @@ export async function onRequestGet(context = {}) {
         .map((asset) => [
           asset,
           {
-            attempted: [
-              ...quotes,
-              ...excludedCurrencyQuotes,
-              ...(!preliminaryDollar?.price ? auxiliaryRawQuotes : []),
-            ].filter((item) => item.asset === asset).length,
+            attempted: attemptedProviders.get(asset)?.size || 0,
             successful: assets[asset]?.sourceCount || 0,
+            attemptedProviders: [...(attemptedProviders.get(asset) || [])],
             excludedForCurrency: [
               ...excludedCurrencyQuotes,
               ...(!preliminaryDollar?.price ? auxiliaryRawQuotes : []),
@@ -1270,9 +1432,12 @@ export async function onRequestGet(context = {}) {
         { id: "providerC", name: "Navasan public mirror", url: "https://github.com/HosseinOdd/Navasan-API" },
         { id: "auxiliary", name: "ChartGoldPrice", url: "https://www.chartgoldprice.com/gold-price-api" },
         { id: "coinGecko", name: "CoinGecko", url: COINGECKO_SIMPLE_URL },
-        { id: "coinMarketCap", name: "CoinMarketCap", url: COINMARKETCAP_QUOTES_URL },
+        { id: "coinMarketCap", name: "CoinMarketCap", url: COINMARKETCAP_PUBLIC_URL },
+        { id: "nobitex", name: "Nobitex public market stats", url: NOBITEX_STATS_URL },
+        { id: "coinbase", name: "Coinbase public spot price", url: "https://api.coinbase.com/v2/prices" },
         { id: "binance", name: "Binance public ticker", url: BINANCE_TICKER_URL },
         { id: "metalsLive", name: "Metals.live", url: METALS_LIVE_URL },
+        { id: "tgjuMetals", name: "TGJU global metals", url: "https://www.tgju.org/profile/" },
         { id: "yahooMetals", name: "Yahoo Finance futures chart", url: YAHOO_METAL_CHART_BASE },
         { id: "tsetmc", name: "TSETMC", url: TSETMC_INDEX_URL },
         { id: "tgjuIndex", name: "TGJU Tehran general index", url: TGJU_BASE + "gc30" },
@@ -1285,7 +1450,7 @@ export async function onRequestGet(context = {}) {
     serverCacheAgeMs: Number.isFinite(serverCacheAgeMs) ? Math.max(0, serverCacheAgeMs) : null,
     dataLayers: {
       crawler: true,
-      userApiKey: Boolean(selectedKey.userSupplied),
+      userApiKey: Boolean(selectedKey.userSupplied || selectedCoinMarketCap.userSupplied),
       serverSync: Boolean(serverSnapshot),
     },
   };

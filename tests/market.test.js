@@ -140,6 +140,76 @@ test("selected crypto requests fetch only that instrument and preserve partial d
   }
 });
 
+test("public crypto quotes work without keys, a session database, or sync", async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  globalThis.fetch = async (input) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    requested.push(url);
+    if (url.hostname === "www.tgju.org")
+      return new Response('<td data-col="info.last_trade.PDrCotVal">500000</td>', { status: 200 });
+    if (url.hostname === "www.bonbast.com") return new Response("token unavailable", { status: 200 });
+    if (url.hostname === "raw.githubusercontent.com")
+      return new Response(JSON.stringify({ usd: { value: "50000", date: Math.floor(Date.now() / 1000) } }), {
+        status: 200,
+      });
+    if (url.hostname === "pro-api.coinmarketcap.com")
+      return new Response(
+        JSON.stringify({
+          status: { error_code: "0" },
+          data: [
+            { id: 1, symbol: "BTC", price: 60000, last_updated: new Date().toISOString() },
+            { id: 825, symbol: "USDT", price: 1, last_updated: new Date().toISOString() },
+          ],
+        }),
+        { status: 200 },
+      );
+    if (url.hostname === "api.nobitex.ir")
+      return new Response(
+        JSON.stringify({
+          status: "ok",
+          stats: {
+            "btc-rls": { latest: "30000000000", dayChange: "1" },
+            "usdt-rls": { latest: "500000", dayChange: "0.1" },
+          },
+        }),
+        { status: 200 },
+      );
+    if (url.hostname === "api.coinbase.com") {
+      const base = url.pathname.split("/").at(-2).split("-")[0];
+      return new Response(JSON.stringify({ data: { amount: base === "BTC" ? "60000" : "1", base, currency: "USD" } }), {
+        status: 200,
+      });
+    }
+    if (url.hostname === "api.binance.com") return new Response("unavailable", { status: 503 });
+    throw new Error(`Unexpected request: ${url.href}`);
+  };
+  try {
+    const request = new Request("https://app.test/api/market?assets=bitcoin,tether");
+    const response = await onRequestGet({ request, env: {} });
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.assets.bitcoin.price, 3000000000);
+    assert.equal(data.assets.bitcoin.sourceCount, 3);
+    assert.deepEqual(new Set(data.assets.bitcoin.sources), new Set(["Coinbase", "CoinMarketCap", "Nobitex"]));
+    assert.equal(data.assets.tether.price, 50000);
+    assert.ok(data.assets.tether.sourceCount >= 2);
+    assert.equal(data.diagnostics.assets.bitcoin.attempted, 4);
+    assert.deepEqual(
+      new Set(data.diagnostics.assets.bitcoin.attemptedProviders),
+      new Set(["coinMarketCap", "nobitex", "coinbase", "binance"]),
+    );
+    assert.equal(data.diagnostics.providers.coinMarketCap.quoteCount, 2);
+    assert.equal(data.diagnostics.providers.nobitex.quoteCount, 2);
+    assert.equal(data.diagnostics.providers.coinbase.quoteCount, 2);
+    assert.equal(requested.some((url) => url.hostname === "api.coingecko.com"), false);
+    assert.equal(requested.some((url) => url.hostname === "api.nobitex.ir" && url.searchParams.get("dstCurrency") === "rls"), true);
+    assert.equal(requested.some((url) => url.hostname === "api.nobitex.ir" && url.searchParams.has("srcCurrency")), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("a user CoinGecko key bypasses durable platform-key cache and quota rows", async () => {
   const context = await createSecureApiContext("https://app.test/api/market?assets=bitcoin");
   const statements = [];
@@ -270,7 +340,8 @@ test("USDT exchange pairs are not converted as if USDT were USD cash", async () 
     assert.equal(data.assets.bitcoin.sourceCount, 1);
     assert.deepEqual(data.assets.bitcoin.sources, ["CoinGecko"]);
     assert.equal(data.diagnostics.providers.binance.status, "fulfilled");
-    assert.equal(data.diagnostics.assets.bitcoin.attempted, 2);
+    assert.equal(data.diagnostics.assets.bitcoin.attempted, 5);
+    assert.equal(data.diagnostics.assets.bitcoin.attemptedProviders.length, 5);
     assert.equal(data.diagnostics.assets.bitcoin.excludedForCurrency, 1);
   } finally {
     globalThis.fetch = originalFetch;
@@ -371,7 +442,11 @@ test("a successful provider response with no parsed quote differs from a failed 
       quoteCount: 0,
       cacheStatus: "refreshed",
     });
-    assert.deepEqual(data.diagnostics.providers.binance, { status: "rejected", quoteCount: 0 });
+    assert.deepEqual(data.diagnostics.providers.binance, {
+      status: "rejected",
+      quoteCount: 0,
+      failureCode: "request_failed",
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }

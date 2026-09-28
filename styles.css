@@ -4376,7 +4376,10 @@ html[dir="ltr"] .chart-axis-label {
 .app-view.market-page.is-active {
   display: grid;
   align-content: start;
-  gap: 18px;
+  gap: clamp(16px, 1.8vw, 24px);
+}
+.app-content:has(.market-page.is-active) {
+  width: min(1760px, 100%);
 }
 .market-page > * {
   min-width: 0;
@@ -4399,15 +4402,18 @@ html[dir="ltr"] .chart-axis-label {
   line-height: 1.8;
 }
 .market-page .market-data {
-  gap: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 12px;
 }
 .market-page .market-row {
   display: grid;
-  grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
+  grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.14fr);
   align-items: start;
-  gap: 16px;
+  gap: 18px;
   min-width: 0;
-  padding: 15px 16px;
+  padding: 18px;
   border-color: #edf1f2;
   background: white;
 }
@@ -4419,23 +4425,23 @@ html[dir="ltr"] .chart-axis-label {
   min-width: 0;
 }
 .market-page .market-row > div:first-child strong {
-  font-size: 0.9rem;
+  font-size: 0.98rem;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
 .market-page .market-row > div:first-child small {
-  font-size: 0.76rem;
-  line-height: 1.65;
+  font-size: 0.82rem;
+  line-height: 1.7;
 }
 .market-page .market-value {
   display: grid;
   justify-items: end;
-  gap: 3px;
+  gap: 5px;
   min-width: 0;
   text-align: end;
 }
 .market-page .market-value > strong {
-  font-size: clamp(1rem, 1.3vw, 1.15rem);
+  font-size: clamp(1.05rem, 1.2vw, 1.28rem);
   line-height: 1.5;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
@@ -4443,9 +4449,18 @@ html[dir="ltr"] .chart-axis-label {
 .market-page .market-value > small,
 .market-page .market-value > span {
   max-width: 100%;
-  font-size: 0.76rem;
-  line-height: 1.65;
+  font-size: 0.82rem;
+  line-height: 1.7;
   overflow-wrap: anywhere;
+}
+.market-page .market-source-list {
+  gap: 6px;
+  margin-top: 7px;
+}
+.market-page .market-source-list span {
+  padding: 4px 8px;
+  font-size: 0.76rem;
+  line-height: 1.55;
 }
 .market-page .market-value bdi {
   unicode-bidi: isolate;
@@ -4462,14 +4477,37 @@ html[dir="ltr"] .chart-axis-label {
   line-height: 1.75;
 }
 .market-page .diagnostics-panel {
-  padding: 20px 24px;
+  padding: 24px clamp(20px, 2vw, 30px);
+}
+.market-page .diagnostics-grid {
+  gap: 12px;
+}
+.market-page .diagnostic-row {
+  gap: 14px;
+  padding: 11px 13px;
+}
+.market-page .diagnostic-row strong {
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+.market-page .diagnostic-row small,
+.market-page .diagnostic-row b {
+  font-size: 0.78rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 .market-page .assets-explainer {
-  padding: 20px 24px;
+  padding: 24px clamp(20px, 2vw, 30px);
 }
 .market-page .assets-explainer p {
   max-width: 80ch;
   line-height: 1.8;
+}
+
+@media (max-width: 1280px) {
+  .market-page .market-data {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 560px) {
