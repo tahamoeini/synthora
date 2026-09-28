@@ -6,13 +6,28 @@ import {
   normalizeMetalHistory,
   normalizeTgjuHistory,
   onRequestGet,
+  parseMarketSourceOptions,
   parseRequestedAssets,
+  marketResponseCacheKey,
+  isFreshServerMarketCache,
 } from "../functions/api/market.js";
 import { createSecureApiContext } from "./helpers/api-context.js";
 
 async function marketRequest(url, env = {}, headers = {}) {
   return onRequestGet(await createSecureApiContext(url, env, headers));
 }
+
+test("server market cache is opt-in and limited to five minutes", () => {
+  const selected = new Set(["gold", "dollar"]);
+  assert.equal(parseMarketSourceOptions("https://app.test/api/market?assets=gold,dollar").sync, false);
+  assert.equal(parseMarketSourceOptions("https://app.test/api/market?assets=gold,dollar&sync=1").sync, true);
+  assert.equal(marketResponseCacheKey(selected), "market-response-v1:dollar,gold");
+
+  const now = Date.now();
+  assert.equal(isFreshServerMarketCache({ fetchedAt: now - (5 * 60 * 1000 - 1), quotes: {} }, now), true);
+  assert.equal(isFreshServerMarketCache({ fetchedAt: now - (5 * 60 * 1000 + 1), quotes: {} }, now), false);
+  assert.equal(isFreshServerMarketCache({ fetchedAt: now + 1, quotes: {} }, now), false);
+});
 
 test("metal history converts troy-ounce closes to grams", () => {
   const [gold] = normalizeMetalHistory([{ date: "2026-09-18", close: 4379.74 }]);
@@ -275,7 +290,6 @@ test("TGJU index history remains available as a prior reading when its current q
     assert.deepEqual(data.diagnostics.providers.tsetmc, {
       status: "fulfilled",
       quoteCount: 0,
-      cacheStatus: "refreshed",
     });
     assert.deepEqual(data.diagnostics.providers.tgjuIndex, {
       status: "fulfilled",
