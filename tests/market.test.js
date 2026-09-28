@@ -185,7 +185,9 @@ test("public crypto quotes work without keys, a session database, or sync", asyn
     throw new Error(`Unexpected request: ${url.href}`);
   };
   try {
-    const request = new Request("https://app.test/api/market?assets=bitcoin,tether");
+    const request = new Request("https://app.test/api/market?assets=bitcoin,tether", {
+      headers: { origin: "https://app.test", "sec-fetch-site": "same-origin" },
+    });
     const response = await onRequestGet({ request, env: {} });
     const data = await response.json();
     assert.equal(response.status, 200);
@@ -256,6 +258,67 @@ test("a user CoinGecko key bypasses durable platform-key cache and quota rows", 
       statements.some((statement) => /provider_monthly_usage|provider_quote_cache/.test(statement)),
       false,
       statements.filter((statement) => /provider_monthly_usage|provider_quote_cache/.test(statement)).join("\n"),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a user CoinMarketCap key stays in the server header and bypasses shared provider storage", async () => {
+  const context = await createSecureApiContext("https://app.test/api/market?assets=bitcoin");
+  const statements = [];
+  const database = context.env.API_USAGE_DB;
+  const prepare = database.prepare.bind(database);
+  database.prepare = (statement) => {
+    statements.push(statement);
+    return prepare(statement);
+  };
+  const request = new Request(context.request.url, {
+    headers: {
+      cookie: context.request.headers.get("cookie"),
+      origin: "https://app.test",
+      "sec-fetch-site": "same-origin",
+      "x-coinmarketcap-api-key": "user-cmc-key",
+    },
+  });
+  const originalFetch = globalThis.fetch;
+  let cmcRequest;
+  globalThis.fetch = async (input, options = {}) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.hostname === "pro-api.coinmarketcap.com") {
+      cmcRequest = { url, options };
+      return new Response(
+        JSON.stringify({
+          data: {
+            1: {
+              slug: "bitcoin",
+              quote: { USD: { price: 60000, last_updated: new Date().toISOString() } },
+            },
+          },
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.hostname === "www.tgju.org")
+      return new Response('<td data-col="info.last_trade.PDrCotVal">500000</td>', { status: 200 });
+    if (url.hostname === "www.bonbast.com") return new Response("token unavailable", { status: 200 });
+    if (url.hostname === "raw.githubusercontent.com")
+      return new Response(JSON.stringify({ usd: { value: "50000", date: Math.floor(Date.now() / 1000) } }), {
+        status: 200,
+      });
+    throw new Error(`Unexpected request: ${url.href}`);
+  };
+  try {
+    const response = await onRequestGet({ request, env: context.env });
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(cmcRequest.url.searchParams.has("api_key"), false);
+    assert.equal(cmcRequest.options.headers["X-CMC_PRO_API_KEY"], "user-cmc-key");
+    assert.deepEqual(cmcRequest.options.cf, { cacheTtl: 0, cacheEverything: false });
+    assert.equal(data.diagnostics.providers.coinMarketCap.cacheStatus, "uncached");
+    assert.equal(
+      statements.some((statement) => /provider_monthly_usage|provider_quote_cache/.test(statement)),
+      false,
     );
   } finally {
     globalThis.fetch = originalFetch;
