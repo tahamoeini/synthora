@@ -4455,7 +4455,9 @@ async function loadMarket(force = false) {
   try {
     await ensureApiSession();
     const assets = marketRequestAssets();
-    const response = await fetchWithTimeout(`/api/market?assets=${encodeURIComponent(assets.join(","))}`, {
+    const marketQuery = new URLSearchParams({ assets: assets.join(",") });
+    if (syncCredentials) marketQuery.set("sync", "1");
+    const response = await fetchWithTimeout(`/api/market?${marketQuery.toString()}`, {
       cache: "default",
       credentials: "same-origin",
       headers: providerRequestHeaders(),
