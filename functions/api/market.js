@@ -847,14 +847,22 @@ export function isFreshServerMarketCache(cached, now = Date.now(), maxAgeMs = SE
 
 function serverQuotesFromSnapshot(snapshot, cacheAgeMs) {
   return Object.entries(snapshot?.assets || {}).flatMap(([asset, item]) => {
-    const values = Array.isArray(item?.sourceValues) && item.sourceValues.length
-      ? item.sourceValues.filter(
-          (value) =>
-            value.accepted !== false &&
-            value.sourceLayer !== "server-cache" &&
-            !String(value.source || "").startsWith("Server cache"),
-        )
-      : [{ source: item?.sources?.[0] || "server-cache", price: item?.price, observedAt: item?.observedAt, quoteType: item?.quoteType }];
+    const values =
+      Array.isArray(item?.sourceValues) && item.sourceValues.length
+        ? item.sourceValues.filter(
+            (value) =>
+              value.accepted !== false &&
+              value.sourceLayer !== "server-cache" &&
+              !String(value.source || "").startsWith("Server cache"),
+          )
+        : [
+            {
+              source: item?.sources?.[0] || "server-cache",
+              price: item?.price,
+              observedAt: item?.observedAt,
+              quoteType: item?.quoteType,
+            },
+          ];
     return values
       .filter((value) => Number.isFinite(Number(value?.price)) && Number(value.price) > 0)
       .map((value) => ({
@@ -997,8 +1005,18 @@ export async function onRequestGet(context = {}) {
       coordinated: false,
       enabled: hasDurableSessionSecurity(context.env) && wantsAny("bitcoin", "ethereum", "tether"),
     },
-    { id: "binance", run: () => providerCryptoBinance([...selected]), enabled: wantsAny("bitcoin", "ethereum"), localOnly: true },
-    { id: "metalsLive", run: providerGlobalMetals, enabled: wantsAny("silver", "platinum", "palladium", "copper"), localOnly: true },
+    {
+      id: "binance",
+      run: () => providerCryptoBinance([...selected]),
+      enabled: wantsAny("bitcoin", "ethereum"),
+      localOnly: true,
+    },
+    {
+      id: "metalsLive",
+      run: providerGlobalMetals,
+      enabled: wantsAny("silver", "platinum", "palladium", "copper"),
+      localOnly: true,
+    },
     {
       id: "yahooMetals",
       run: () => providerYahooMetals([...selected]),
