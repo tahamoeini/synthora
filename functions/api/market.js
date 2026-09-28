@@ -415,477 +415,6 @@ async function loadPlatformProviderQuotes(env, provider, options) {
   }
 }
 
-const coordinatedProviderFlights = new Map();
-
-function staleProviderPayload(value) {
-  if (Array.isArray(value)) return value.map((item) => ({ ...item, cacheStale: true }));
-  if (!value || typeof value !== "object") return value;
-  return {
-    ...value,
-    cacheStale: true,
-    quotes: Array.isArray(value.quotes) ? value.quotes.map((item) => ({ ...item, cacheStale: true })) : value.quotes,
-  };
-}
-
-async function loadCoordinatedProviderPayload(env, provider, fetchPayload, options = {}) {
-  const maxAgeMs = options.maxAgeMs ?? 60_000;
-  const maxStaleMs = options.maxStaleMs ?? 60 * 60_000;
-  const quotaProvider = options.quotaProvider || provider;
-  if (typeof env?.API_USAGE_DB?.prepare !== "function")
-    return { payload: await fetchPayload(), cacheStatus: "uncached" };
-  const cached = await readPlatformProviderCache(env, provider);
-  const age = cached ? Date.now() - cached.fetchedAt : Infinity;
-  if (cached && age >= 0 && age < maxAgeMs) return { payload: cached.quotes, cacheStatus: "cached" };
-  const stale = () => (cached && age >= 0 && age <= maxStaleMs ? staleProviderPayload(cached.quotes) : null);
-  if (coordinatedProviderFlights.has(provider)) return coordinatedProviderFlights.get(provider);
-
-  const operation = (async () => {
-    const canFetch = await reservePlatformProviderRequest(env, quotaProvider, {
-      monthlyLimit: options.monthlyLimit ?? 8000,
-      minimumIntervalSeconds: options.minimumIntervalSeconds ?? 60,
-    });
-    if (!canFetch) {
-      const latest = await waitForPlatformProviderCache(env, provider, cached?.fetchedAt || 0);
-      const latestAge = latest ? Date.now() - latest.fetchedAt : Infinity;
-      if (latest && latestAge >= 0 && latestAge < maxAgeMs) return { payload: latest.quotes, cacheStatus: "cached" };
-      if (latest && latestAge >= 0 && latestAge <= maxStaleMs)
-        return { payload: staleProviderPayload(latest.quotes), cacheStatus: "stale" };
-      const payload = stale();
-      if (payload !== null) return { payload, cacheStatus: "stale" };
-      throw new Error("provider-rate-limited");
-    }
-    try {
-      const payload = await fetchPayload();
-      await writePlatformProviderCache(env, provider, payload);
-      return { payload, cacheStatus: "refreshed" };
-    } catch (error) {
-      if (Number(error?.status) === 429 && error.retryAfterSeconds)
-        await deferPlatformProviderRequest(env, quotaProvider, error.retryAfterSeconds);
-      const payload = stale();
-      if (payload !== null) return { payload, cacheStatus: "stale" };
-      throw error;
-    }
-  })();
-  coordinatedProviderFlights.set(provider, operation);
-  try {
-    return await operation;
-  } finally {
-    if (coordinatedProviderFlights.get(provider) === operation) coordinatedProviderFlights.delete(provider);
-  }
-}
-
-async function providerCryptoBinance(requested = ["bitcoin", "ethereum"]) {
-  const mapping = { BTCUSDT: "bitcoin", ETHUSDT: "ethereum" };
-  const symbols = Object.entries(mapping)
-    .filter(([, asset]) => requested.includes(asset))
-    .map(([symbol]) => symbol);
-  if (!symbols.length) return [];
-  const url = BINANCE_TICKER_URL + "?symbols=" + encodeURIComponent(JSON.stringify(symbols));
-  const data = await fetchJson(url);
-  return (Array.isArray(data) ? data : [])
-    .map((item) => {
-      const asset = mapping[item && item.symbol];
-      if (!asset) return null;
-      const usdt = parseNumber(item.lastPrice);
-      return quote(asset, usdt, "Binance", {
-        changePct: parseNumber(item.priceChangePercent),
-        sourceUrl: url,
-        sourceTime: item.closeTime ? new Date(Number(item.closeTime)).toISOString() : null,
-        unit: "coin",
-        currency: "USDT",
-        quoteType: "direct",
-      });
-    })
-    .filter(Boolean);
-}
-
-function nestedNumber(value, keys, depth = 0) {
-  if (depth > 4 || value === null || value === undefined) return null;
-  if (Array.isArray(value)) {
-    for (const item of value.slice().reverse()) {
-      const found = nestedNumber(item, keys, depth + 1);
-      if (found !== null) return found;
-    }
-    return null;
-  }
-  if (typeof value !== "object") return null;
-  for (const [key, item] of Object.entries(value)) {
-    if (keys.includes(key)) {
-      const found = parseNumber(item);
-      if (Number.isFinite(found) && found > 0) return found;
-    }
-  }
-  for (const item of Object.values(value)) {
-    const found = nestedNumber(item, keys, depth + 1);
-    if (found !== null) return found;
-  }
-  return null;
-}
-
-async function providerGlobalMetals() {
-  const data = await fetchJson(METALS_LIVE_URL);
-  const row = Array.isArray(data) ? data.at(-1) : data;
-  const conversions = {
-    gold: { factor: 0.75, unit: "gram", divisor: TROY_OUNCE_TO_GRAMS },
-    silver: { factor: 1, unit: "gram", divisor: TROY_OUNCE_TO_GRAMS },
-    platinum: { factor: 1, unit: "gram", divisor: TROY_OUNCE_TO_GRAMS },
-    palladium: { factor: 1, unit: "gram", divisor: TROY_OUNCE_TO_GRAMS },
-    copper: { factor: 1, unit: "gram", divisor: 453.59237 },
-  };
-  return Object.entries(conversions)
-    .map(([asset, meta]) => {
-      const ounceUsd = parseNumber(row && row[asset]);
-      if (!Number.isFinite(ounceUsd) || ounceUsd <= 0) return null;
-      return quote(asset, (ounceUsd * meta.factor) / meta.divisor, "Metals.live", {
-        sourceUrl: METALS_LIVE_URL,
-        sourceTime: null,
-        unit: meta.unit,
-        currency: "USD",
-        quoteType: "direct",
-      });
-    })
-    .filter(Boolean);
-}
-
-async function providerYahooMetals(requested = ["platinum", "palladium", "copper"]) {
-  const symbols = {
-    platinum: { symbol: "PL=F", divisor: TROY_OUNCE_TO_GRAMS },
-    palladium: { symbol: "PA=F", divisor: TROY_OUNCE_TO_GRAMS },
-    copper: { symbol: "HG=F", divisor: 453.59237 },
-  };
-  const results = await Promise.allSettled(
-    Object.entries(symbols)
-      .filter(([asset]) => requested.includes(asset))
-      .map(async ([asset, meta]) => {
-        const url = YAHOO_METAL_CHART_BASE + encodeURIComponent(meta.symbol) + "?range=1d&interval=1d";
-        const data = await fetchJson(url);
-        const quoteValue =
-          data &&
-          data.chart &&
-          data.chart.result &&
-          data.chart.result[0] &&
-          data.chart.result[0].meta &&
-          data.chart.result[0].meta.regularMarketPrice;
-        const usd = parseNumber(quoteValue);
-        if (!Number.isFinite(usd) || usd <= 0) throw new Error("Yahoo metal price not found");
-        return quote(asset, usd / meta.divisor, "Yahoo Finance", {
-          sourceUrl: url,
-          sourceTime: data.chart.result[0].meta.regularMarketTime
-            ? new Date(data.chart.result[0].meta.regularMarketTime * 1000).toISOString()
-            : null,
-          unit: "gram",
-          currency: "USD",
-          quoteType: "direct",
-        });
-      }),
-  );
-  return results
-    .filter((result) => result.status === "fulfilled")
-    .map((result) => result.value)
-    .filter(Boolean);
-}
-
-async function providerTsetmc() {
-  const data = await fetchJson(TSETMC_INDEX_URL);
-  const current = nestedNumber(data, ["xNivIn", "indexValue", "currentValue", "lastValue", "value"]);
-  if (!Number.isFinite(current) || current <= 0) return [];
-  const previous = nestedNumber(data, ["xNivInPre", "previousValue", "yesterdayValue", "prevValue"]);
-  const changePct = Number.isFinite(previous) && previous > 0 ? (current / previous - 1) * 100 : null;
-  return [
-    quote("bourseIndex", current, "TSETMC", {
-      changePct,
-      sourceUrl: TSETMC_INDEX_URL,
-      unit: "point",
-      currency: "INDEX",
-    }),
-  ];
-}
-
-async function providerTgjuIndex() {
-  const url = TGJU_BASE + "gc30";
-  const html = await fetchText(url, { requestTimeoutMs: 500 });
-  const current = firstNumberAfter(html, 'data-col="info.last_trade.PDrCotVal"', 500);
-  const series = normalizeHistorySeries(extractTgjuChartData(html));
-  const history = series.map((point) => ({ ...point, value: Math.round(point.value) }));
-  if (!Number.isFinite(current) || current <= 0) return { quotes: [], history: { bourseIndex: history } };
-  const serverTime = html.match(/id="server-time"[^>]+data-value="([^"]+)"/);
-  const indexQuote = quote("bourseIndex", current, "TGJU", {
-    sourceUrl: url,
-    sourceTime: serverTime ? serverTime[1] : null,
-    unit: "point",
-    currency: "INDEX",
-  });
-  return {
-    quotes: indexQuote ? [indexQuote] : [],
-    history: { bourseIndex: history },
-  };
-}
-
-export function normalizeHistorySeries(value) {
-  if (Array.isArray(value)) {
-    return value
-      .map((point) => {
-        if (Array.isArray(point)) return { date: point[0], value: Number(point[1]) };
-        if (!point || typeof point !== "object") return null;
-        return {
-          date: point.date || point.time || point.timestamp || point.t,
-          value: Number(point.close ?? point.value ?? point.price ?? point.c),
-        };
-      })
-      .filter((point) => point && point.date && Number.isFinite(point.value) && point.value > 0);
-  }
-  if (value && typeof value === "object") {
-    return Object.entries(value)
-      .map(([date, point]) => ({
-        date,
-        value: Number(point && typeof point === "object" ? (point.close ?? point.value ?? point.price) : point),
-      }))
-      .filter((point) => point.date && Number.isFinite(point.value) && point.value > 0);
-  }
-  return [];
-}
-
-export function normalizeMetalHistory(value) {
-  return normalizeHistorySeries(value).map((point) => ({ ...point, value: point.value / TROY_OUNCE_TO_GRAMS }));
-}
-
-function readBalancedArray(text, startIndex) {
-  let depth = 0;
-  let quoteChar = null;
-  let escaped = false;
-  for (let index = startIndex; index < text.length; index += 1) {
-    const character = text[index];
-    if (quoteChar) {
-      if (escaped) escaped = false;
-      else if (character === "\\") escaped = true;
-      else if (character === quoteChar) quoteChar = null;
-      continue;
-    }
-    if (character === '"' || character === "'") {
-      quoteChar = character;
-      continue;
-    }
-    if (character === "[") depth += 1;
-    if (character === "]") {
-      depth -= 1;
-      if (depth === 0) return text.slice(startIndex, index + 1);
-    }
-  }
-  return null;
-}
-
-export function extractTgjuChartData(html, blockId = "ChartBlock-3") {
-  const markerIndex = String(html || "").indexOf(`#${blockId}").msHighcharts({`);
-  if (markerIndex < 0) return [];
-  const dataIndex = String(html).indexOf("chartData:", markerIndex);
-  if (dataIndex < 0) return [];
-  const arrayStart = String(html).indexOf("[", dataIndex);
-  if (arrayStart < 0) return [];
-  const raw = readBalancedArray(String(html), arrayStart);
-  if (!raw) return [];
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return [];
-  }
-}
-
-export function normalizeTgjuHistory(value) {
-  return normalizeHistorySeries(value)
-    .map((point) => ({ ...point, value: point.value / 10 }))
-    .filter((point) => Number.isFinite(point.value) && point.value > 0);
-}
-
-async function getAuxiliaryMetalData() {
-  const data = await fetchJson(CHART_GOLD_URL, { requestTimeoutMs: 600 });
-  const prices = data && data.prices ? data.prices : {};
-  const history = data && data.history ? data.history : {};
-  return {
-    goldUsdPerGram: parseNumber(prices.gold && prices.gold.gram),
-    silverUsdPerGram: parseNumber(prices.silver && prices.silver.gram),
-    history: {
-      gold: normalizeMetalHistory(history.gold || (history.series && history.series.gold)).slice(-180),
-      silver: normalizeMetalHistory(history.silver || (history.series && history.series.silver)).slice(-180),
-    },
-    sourceTime: data && data.meta ? data.meta.updated_at || null : null,
-  };
-}
-
-function median(values) {
-  const sorted = values
-    .filter(Number.isFinite)
-    .slice()
-    .sort((left, right) => left - right);
-  if (!sorted.length) return null;
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
-}
-
-export function aggregate(asset, quotes) {
-  const valid = quotes.filter(
-    (item) =>
-      item &&
-      item.asset === asset &&
-      item.cacheStale !== true &&
-      Number.isFinite(Number(item.price)) &&
-      Number(item.price) > 0,
-  );
-  if (!valid.length) return null;
-  const sleeveId = INSTRUMENT_REGISTRY[asset]?.sleeveId || "commodities";
-  const configuredTolerance = CONSENSUS_POLICY.agreementTolerancePct[sleeveId];
-  const hasAgreementTolerance = Number.isFinite(configuredTolerance);
-  const agreementTolerancePct = hasAgreementTolerance ? configuredTolerance : 0;
-  const spreadWarningPct = CONSENSUS_POLICY.spreadWarningPct[sleeveId] ?? 1;
-  const timedQuotes = valid
-    .map((item) => ({ item, time: new Date(item.observedAt || item.sourceTime || "").getTime() }))
-    .filter((entry) => Number.isFinite(entry.time));
-  const untimedQuotes = valid.filter(
-    (item) => !Number.isFinite(new Date(item.observedAt || item.sourceTime || "").getTime()),
-  );
-  const timeWindow = sleeveId === "crypto" ? 5 * 60_000 : sleeveId === "fx" ? 60 * 60_000 : 30 * 60_000;
-  const newestTime = timedQuotes.length ? Math.max(...timedQuotes.map((entry) => entry.time)) : null;
-  const comparisonQuotes = timedQuotes.length
-    ? [
-        ...timedQuotes.filter((entry) => newestTime - entry.time <= timeWindow).map((entry) => entry.item),
-        ...untimedQuotes,
-      ]
-    : valid;
-  const unknownObservationCount = comparisonQuotes.filter(
-    (item) => !Number.isFinite(new Date(item.observedAt || item.sourceTime || "").getTime()),
-  ).length;
-  const allPrices = comparisonQuotes.map((item) => Number(item.price));
-  const center = median(allPrices);
-  const mad = median(allPrices.map((price) => Math.abs(price - center)));
-  const outlierLimit = 3 * 1.4826 * (mad || 0);
-  const accepted =
-    comparisonQuotes.length >= 3
-      ? comparisonQuotes.filter(
-          (item) =>
-            Math.abs(Number(item.price) - center) <= Math.max(outlierLimit, (center * agreementTolerancePct) / 100),
-        )
-      : comparisonQuotes;
-  const comparisonPrices = comparisonQuotes.map((item) => Number(item.price));
-  const acceptedPrices = accepted.map((item) => Number(item.price));
-  const spreadPct =
-    comparisonPrices.length > 1
-      ? ((Math.max(...comparisonPrices) - Math.min(...comparisonPrices)) / Math.max(median(comparisonPrices), 1)) * 100
-      : 0;
-  const acceptedSpreadPct =
-    acceptedPrices.length > 1
-      ? ((Math.max(...acceptedPrices) - Math.min(...acceptedPrices)) / Math.max(median(acceptedPrices), 1)) * 100
-      : 0;
-  const consensusDisagreement = accepted.length >= 2 && spreadPct > spreadWarningPct;
-  const usable = accepted;
-  const provisional =
-    !CONSENSUS_POLICY.calibrated &&
-    hasAgreementTolerance &&
-    accepted.length >= 2 &&
-    !consensusDisagreement &&
-    unknownObservationCount === 0;
-  const changes = accepted
-    .map((item) => item.changePct)
-    .filter((value) => value !== null && value !== undefined && value !== "")
-    .map(Number)
-    .filter(Number.isFinite);
-  const sourceTimes = (usable.length ? usable : accepted)
-    .map((item) => item.observedAt || item.sourceTime)
-    .filter(Boolean)
-    .sort((left, right) => {
-      const leftTime = new Date(left).getTime();
-      const rightTime = new Date(right).getTime();
-      if (Number.isFinite(leftTime) && Number.isFinite(rightTime)) return leftTime - rightTime;
-      return String(left).localeCompare(String(right));
-    });
-  const defaultUnits = {
-    dollar: "TOMAN",
-    gold: "gram",
-    silver: "gram",
-    bitcoin: "coin",
-    ethereum: "coin",
-    tether: "coin",
-    platinum: "gram",
-    palladium: "gram",
-    copper: "gram",
-    bourseIndex: "point",
-  };
-  const quoteTypes = new Set(usable.map((item) => (item.quoteType === "derived" ? "derived" : "direct")));
-  const conversionDependencies = [
-    ...new Map(
-      accepted
-        .flatMap((item) => item.conversionDependencies || [])
-        .map((dependency) => [JSON.stringify(dependency), dependency]),
-    ).values(),
-  ];
-  const degradedDependency = conversionDependencies.some((dependency) => dependency.status !== "healthy");
-  const status = provisional
-    ? "provisional"
-    : usable.length === 1 ||
-        consensusDisagreement ||
-        unknownObservationCount > 0 ||
-        accepted.length < comparisonQuotes.length ||
-        comparisonQuotes.length < valid.length ||
-        degradedDependency
-      ? "degraded"
-      : "healthy";
-  const confidenceRank = { none: 0, low: 1, medium: 2, high: 3 };
-  let confidence = consensusDisagreement
-    ? accepted.length >= 3
-      ? "medium"
-      : "low"
-    : provisional
-      ? "medium"
-      : usable.length >= 3 && accepted.length === valid.length
-        ? "high"
-        : usable.length >= 2
-          ? "medium"
-          : "low";
-  conversionDependencies.forEach((dependency) => {
-    if ((confidenceRank[dependency.confidence] ?? 1) < confidenceRank[confidence])
-      confidence = dependency.confidence || "low";
-  });
-  if (unknownObservationCount > 0) confidence = "low";
-  return {
-    price: usable.length ? Math.round(median(usable.map((item) => item.price))) : null,
-    changePct: changes.length ? Number(median(changes).toFixed(3)) : null,
-    unit: comparisonQuotes.find((item) => item.unit)?.unit || defaultUnits[asset] || "TOMAN",
-    currency: comparisonQuotes.find((item) => item.currency)?.currency || "TOMAN",
-    sleeveId,
-    quoteType: quoteTypes.size > 1 ? "mixed" : quoteTypes.has("derived") ? "derived" : "direct",
-    derivedFrom: [...new Set(usable.flatMap((item) => item.derivedFrom || []))],
-    dependencies: conversionDependencies,
-    status,
-    confidence,
-    sourceCount: usable.length,
-    configuredSourceCount: CONFIGURED_SOURCE_COUNTS[asset] || valid.length,
-    spreadPct: Number(spreadPct.toFixed(3)),
-    acceptedSpreadPct: Number(acceptedSpreadPct.toFixed(3)),
-    spreadWarningPct,
-    consensusMethod: "median_mad",
-    consensusDisagreement,
-    unknownObservationCount,
-    consensusPolicyVersion: CONSENSUS_POLICY.version,
-    consensusCalibrated: CONSENSUS_POLICY.calibrated,
-    agreementTolerancePct: hasAgreementTolerance ? agreementTolerancePct : null,
-    consensusProvisional: provisional,
-    sources: usable.map((item) => item.source),
-    sourceValues: valid.map((item) => ({
-      source: item.source,
-      price: Math.round(item.price),
-      quoteType: item.quoteType,
-      observedAt: item.observedAt || item.sourceTime || null,
-      accepted: accepted.includes(item),
-      exclusionReason: accepted.includes(item)
-        ? null
-        : timedQuotes.length && !comparisonQuotes.includes(item)
-          ? "older-observation"
-          : "statistical-outlier",
-    })),
-    observedAt: sourceTimes.at(-1) || null,
-    retrievedAt: new Date().toISOString(),
-    asOf: sourceTimes.at(-1) || null,
-  };
-}
-
 export function parseMarketSourceOptions(urlLike) {
   const url = urlLike instanceof URL ? urlLike : new URL(String(urlLike || "https://invest-consult.local/api/market"));
   return {
@@ -907,7 +436,12 @@ export function isFreshServerMarketCache(cached, now = Date.now(), maxAgeMs = SE
 function serverQuotesFromSnapshot(snapshot, cacheAgeMs) {
   return Object.entries(snapshot?.assets || {}).flatMap(([asset, item]) => {
     const values = Array.isArray(item?.sourceValues) && item.sourceValues.length
-      ? item.sourceValues.filter((value) => value.accepted !== false)
+      ? item.sourceValues.filter(
+          (value) =>
+            value.accepted !== false &&
+            value.sourceLayer !== "server-cache" &&
+            !String(value.source || "").startsWith("Server cache"),
+        )
       : [{ source: item?.sources?.[0] || "server-cache", price: item?.price, observedAt: item?.observedAt, quoteType: item?.quoteType }];
     return values
       .filter((value) => Number.isFinite(Number(value?.price)) && Number(value.price) > 0)
@@ -1063,24 +597,12 @@ export async function onRequestGet(context = {}) {
   ].filter((provider) => provider.enabled);
   const activeDefinitions = [...primaryDefinitions, ...extendedDefinitions];
   const providerRuns = activeDefinitions.map(async (provider) => {
-    let result;
-    let cacheStatus = null;
-    if (provider.localOnly || provider.coordinated === false) result = await provider.run();
-    else {
-      const coordinated = await loadCoordinatedProviderPayload(
-        context.env,
-        provider.providerKey || provider.id,
-        provider.run,
-        { quotaProvider: provider.quotaProvider },
-      );
-      result = coordinated.payload;
-      cacheStatus = coordinated.cacheStatus;
-    }
+    const result = await provider.run();
     return {
       id: provider.id,
       quotes: Array.isArray(result) ? result : result.quotes || [],
       history: Array.isArray(result) ? {} : result.history || {},
-      cacheStatus: cacheStatus || (Array.isArray(result) ? null : result.cacheStatus || null),
+      cacheStatus: Array.isArray(result) ? null : result.cacheStatus || null,
     };
   });
   const fixedIncomeRequest = selected.has("fixedIncome") ? getFixedIncomeMetric() : null;
@@ -1105,13 +627,10 @@ export async function onRequestGet(context = {}) {
   let tgjuIndexOutcome = { status: "skipped" };
   if (selected.has("bourseIndex") && !tsetmcQuotes.some((item) => item.asset === "bourseIndex")) {
     try {
-      const coordinated = await loadCoordinatedProviderPayload(context.env, "tgjuIndex", providerTgjuIndex, {
-        quotaProvider: "providerA",
-      });
-      const result = coordinated.payload;
+      const result = await providerTgjuIndex();
       tgjuIndexOutcome = {
         status: "fulfilled",
-        value: { quotes: result.quotes || [], history: result.history || {}, cacheStatus: coordinated.cacheStatus },
+        value: { quotes: result.quotes || [], history: result.history || {} },
       };
     } catch {
       tgjuIndexOutcome = { status: "rejected" };
@@ -1128,14 +647,8 @@ export async function onRequestGet(context = {}) {
   let fallbackResult = { status: "skipped", quoteCount: 0 };
   if (fallbackAssets.length) {
     try {
-      const coordinated = await loadCoordinatedProviderPayload(
-        context.env,
-        `providerC-${fallbackAssets.slice().sort().join("-")}`,
-        () => providerC(600, fallbackAssets),
-        { quotaProvider: "providerC" },
-      );
+      const fallback = await providerC(600, fallbackAssets);
       const fallbackQuotes = fallback.filter((item) => fallbackAssets.includes(item.asset));
-      if (coordinated.cacheStatus === "stale") fallbackQuotes.forEach((item) => (item.cacheStale = true));
       primaryQuotes.push(...fallbackQuotes);
       fallbackResult = { status: "fulfilled", quoteCount: fallbackQuotes.length };
     } catch {
@@ -1317,30 +830,30 @@ export async function onRequestGet(context = {}) {
   };
 
   const responseBody = {
-      updatedAt: now,
-      assets,
-      funds,
-      history,
-      catalog: { sleeves: SLEEVE_REGISTRY, instruments: INSTRUMENT_REGISTRY },
-      diagnostics,
-      sources: {
-        providers: [
-          { id: "providerA", name: "TGJU", url: "https://www.tgju.org/" },
-          { id: "providerB", name: "Bonbast", url: BONBAST_BASE + "/" },
-          { id: "providerC", name: "Navasan public mirror", url: "https://github.com/HosseinOdd/Navasan-API" },
-          { id: "auxiliary", name: "ChartGoldPrice", url: "https://www.chartgoldprice.com/gold-price-api" },
-          { id: "coinGecko", name: "CoinGecko", url: COINGECKO_SIMPLE_URL },
-          { id: "coinMarketCap", name: "CoinMarketCap", url: COINMARKETCAP_QUOTES_URL },
-          { id: "binance", name: "Binance public ticker", url: BINANCE_TICKER_URL },
-          { id: "metalsLive", name: "Metals.live", url: METALS_LIVE_URL },
-          { id: "yahooMetals", name: "Yahoo Finance futures chart", url: YAHOO_METAL_CHART_BASE },
-          { id: "tsetmc", name: "TSETMC", url: TSETMC_INDEX_URL },
-          { id: "tgjuIndex", name: "TGJU Tehran general index", url: TGJU_BASE + "gc30" },
-        ],
-        fixedIncome: "https://charisma.ir/",
-        history: "https://www.tgju.org/",
-      },
-      note: "قیمت‌های داخلی به تومان نرمال‌سازی می‌شوند. قیمت‌های مشتق‌شده با منبع تبدیل مشخص هستند؛ قیمت متعارض برای ارزش‌گذاری استفاده نمی‌شود. دارایی‌های شاخصی بورس به‌عنوان مرجع نمایش داده می‌شوند و قیمت آینده پیش‌بینی نمی‌شود.",
+    updatedAt: now,
+    assets,
+    funds,
+    history,
+    catalog: { sleeves: SLEEVE_REGISTRY, instruments: INSTRUMENT_REGISTRY },
+    diagnostics,
+    sources: {
+      providers: [
+        { id: "providerA", name: "TGJU", url: "https://www.tgju.org/" },
+        { id: "providerB", name: "Bonbast", url: BONBAST_BASE + "/" },
+        { id: "providerC", name: "Navasan public mirror", url: "https://github.com/HosseinOdd/Navasan-API" },
+        { id: "auxiliary", name: "ChartGoldPrice", url: "https://www.chartgoldprice.com/gold-price-api" },
+        { id: "coinGecko", name: "CoinGecko", url: COINGECKO_SIMPLE_URL },
+        { id: "coinMarketCap", name: "CoinMarketCap", url: COINMARKETCAP_QUOTES_URL },
+        { id: "binance", name: "Binance public ticker", url: BINANCE_TICKER_URL },
+        { id: "metalsLive", name: "Metals.live", url: METALS_LIVE_URL },
+        { id: "yahooMetals", name: "Yahoo Finance futures chart", url: YAHOO_METAL_CHART_BASE },
+        { id: "tsetmc", name: "TSETMC", url: TSETMC_INDEX_URL },
+        { id: "tgjuIndex", name: "TGJU Tehran general index", url: TGJU_BASE + "gc30" },
+      ],
+      fixedIncome: "https://charisma.ir/",
+      history: "https://www.tgju.org/",
+    },
+    note: "قیمت‌های داخلی به تومان نرمال‌سازی می‌شوند. قیمت‌های مشتق‌شده با منبع تبدیل مشخص هستند؛ قیمت متعارض برای ارزش‌گذاری استفاده نمی‌شود. دارایی‌های شاخصی بورس به‌عنوان مرجع نمایش داده می‌شوند و قیمت آینده پیش‌بینی نمی‌شود.",
     serverDataFresh: Boolean(serverSnapshot),
     serverCacheAgeMs: Number.isFinite(serverCacheAgeMs) ? Math.max(0, serverCacheAgeMs) : null,
     dataLayers: {
@@ -1352,10 +865,9 @@ export async function onRequestGet(context = {}) {
   if (sourceOptions.sync && !selectedKey.userSupplied && hasDurableSessionSecurity(context.env))
     await writePlatformProviderCache(context.env, cacheKey, responseBody, Date.now());
   return new Response(JSON.stringify(responseBody), {
-      headers: {
-        "content-type": "application/json; charset=UTF-8",
-        "cache-control": "private, no-store",
-      },
+    headers: {
+      "content-type": "application/json; charset=UTF-8",
+      "cache-control": "private, no-store",
     },
-  );
+  });
 }
