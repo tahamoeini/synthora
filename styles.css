@@ -4372,3 +4372,130 @@ html[dir="ltr"] .chart-axis-label {
     flex-wrap: wrap;
   }
 }
+
+.app-view.market-page.is-active {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+}
+.market-page > * {
+  min-width: 0;
+}
+.market-page .page-heading,
+.market-page .market-global-references,
+.market-page .assets-explainer,
+.market-page .diagnostics-panel {
+  margin: 0;
+}
+.market-page .market-panel {
+  padding: clamp(18px, 2.6vw, 28px);
+}
+.market-page .market-panel .section-heading {
+  align-items: center;
+}
+.market-page .panel-intro {
+  max-width: 78ch;
+  margin: 10px 0 18px;
+  line-height: 1.8;
+}
+.market-page .market-data {
+  gap: 10px;
+}
+.market-page .market-row {
+  display: grid;
+  grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
+  align-items: start;
+  gap: 16px;
+  min-width: 0;
+  padding: 15px 16px;
+  border-color: #edf1f2;
+  background: white;
+}
+.market-page .market-row > div:first-child {
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 10px;
+  row-gap: 4px;
+  align-content: start;
+  min-width: 0;
+}
+.market-page .market-row > div:first-child strong {
+  font-size: 0.9rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.market-page .market-row > div:first-child small {
+  font-size: 0.76rem;
+  line-height: 1.65;
+}
+.market-page .market-value {
+  display: grid;
+  justify-items: end;
+  gap: 3px;
+  min-width: 0;
+  text-align: end;
+}
+.market-page .market-value > strong {
+  font-size: clamp(1rem, 1.3vw, 1.15rem);
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.market-page .market-value > small,
+.market-page .market-value > span {
+  max-width: 100%;
+  font-size: 0.76rem;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.market-page .market-value bdi {
+  unicode-bidi: isolate;
+}
+.market-page .market-footer {
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding-block-start: 12px;
+  border-block-start: 1px solid var(--line);
+  line-height: 1.6;
+}
+.market-page .data-note {
+  margin-top: 12px;
+  line-height: 1.75;
+}
+.market-page .diagnostics-panel {
+  padding: 20px 24px;
+}
+.market-page .assets-explainer {
+  padding: 20px 24px;
+}
+.market-page .assets-explainer p {
+  max-width: 80ch;
+  line-height: 1.8;
+}
+
+@media (max-width: 560px) {
+  .app-view.market-page.is-active {
+    gap: 14px;
+  }
+  .market-page .page-heading {
+    gap: 8px;
+  }
+  .market-page .market-panel,
+  .market-page .diagnostics-panel,
+  .market-page .assets-explainer {
+    padding: 17px;
+  }
+  .market-page .market-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    padding: 13px;
+  }
+  .market-page .market-value {
+    justify-items: start;
+    padding-block-start: 9px;
+    border-block-start: 1px solid #edf1f2;
+    text-align: start;
+  }
+  .market-page .diagnostics-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

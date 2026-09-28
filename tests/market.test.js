@@ -140,6 +140,58 @@ test("selected crypto requests fetch only that instrument and preserve partial d
   }
 });
 
+test("a user CoinGecko key bypasses durable platform-key cache and quota rows", async () => {
+  const context = await createSecureApiContext("https://app.test/api/market?assets=bitcoin");
+  const statements = [];
+  const database = context.env.API_USAGE_DB;
+  const prepare = database.prepare.bind(database);
+  database.prepare = (statement) => {
+    statements.push(statement);
+    return prepare(statement);
+  };
+  const request = new Request(context.request.url, {
+    headers: {
+      cookie: context.request.headers.get("cookie"),
+      origin: "https://app.test",
+      "sec-fetch-site": "same-origin",
+      "x-coingecko-api-key": "user-owned-key",
+    },
+  });
+  const originalFetch = globalThis.fetch;
+  const requestedKeys = [];
+  globalThis.fetch = async (input, options = {}) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.hostname === "www.tgju.org")
+      return new Response('<td data-col="info.last_trade.PDrCotVal">500000</td>', { status: 200 });
+    if (url.hostname === "www.bonbast.com") return new Response("token unavailable", { status: 200 });
+    if (url.hostname === "raw.githubusercontent.com")
+      return new Response(JSON.stringify({ usd: { value: "50000", date: Math.floor(Date.now() / 1000) } }), {
+        status: 200,
+      });
+    if (url.hostname === "api.coingecko.com") {
+      requestedKeys.push(options.headers?.["x-cg-demo-api-key"]);
+      return new Response(JSON.stringify({ bitcoin: { usd: 100, usd_24hr_change: 1 } }), { status: 200 });
+    }
+    if (url.hostname === "api.binance.com") return new Response("unavailable", { status: 503 });
+    throw new Error(`Unexpected provider request: ${url.href}`);
+  };
+  try {
+    const response = await onRequestGet({ request, env: context.env });
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.assets.bitcoin.price, 5_000_000);
+    assert.deepEqual(requestedKeys, ["user-owned-key"]);
+    assert.equal(data.diagnostics.providers.coinGecko.cacheStatus, "uncached");
+    assert.equal(
+      statements.some((statement) => /provider_monthly_usage|provider_quote_cache/.test(statement)),
+      false,
+      statements.filter((statement) => /provider_monthly_usage|provider_quote_cache/.test(statement)).join("\n"),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("fixture FX and gold quotes produce marked estimates and permit USD conversion", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input, options = {}) => {

@@ -76,6 +76,33 @@ test("public market quotes continue without a D1 binding or provider key", async
   assert.ok(requestedUrls.some((url) => url.hostname === "www.tgju.org"));
 });
 
+test("one failed Navasan fallback feed does not discard the successful domestic quote", async () => {
+  const response = await withFetch(
+    async (input) => {
+      const url = new URL(typeof input === "string" ? input : input.url);
+      if (url.hostname === "www.tgju.org") return new Response("quote markup unavailable", { status: 200 });
+      if (url.hostname === "www.bonbast.com") return new Response("request token unavailable", { status: 200 });
+      if (url.hostname === "raw.githubusercontent.com" && url.pathname.endsWith("/fiat.json"))
+        return new Response(JSON.stringify({ usd: { value: "50000", date: 1790530315 } }), { status: 200 });
+      if (url.hostname === "raw.githubusercontent.com" && url.pathname.endsWith("/gold.json"))
+        return new Response("unavailable", { status: 503 });
+      if (url.hostname === "www.chartgoldprice.com")
+        return new Response(JSON.stringify({ prices: { gold: { gram: 0 }, silver: { gram: 0 } }, history: {} }), {
+          status: 200,
+        });
+      throw new Error(`Unexpected provider request: ${url.href}`);
+    },
+    async () => marketGet(context("/api/market?assets=dollar,gold")),
+  );
+
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(data.assets.dollar.price, 50_000);
+  assert.equal(data.assets.dollar.sources.includes("Provider C"), true);
+  assert.equal(data.assets.gold, undefined);
+  assert.equal(data.diagnostics.providers.providerC.quoteCount, 1);
+});
+
 test("unmetered public mode never spends a server CoinGecko key but accepts the user's key", async () => {
   const requestedKeys = [];
   const env = { COINGECKO_DEMO_API_KEY: "platform-secret-must-not-be-used-without-d1" };

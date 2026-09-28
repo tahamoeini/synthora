@@ -1358,7 +1358,7 @@ function marketUnavailableMessage(item, diagnostics) {
 function lastKnownPriceMarkup(assetId, data, cachedMarket, currentItem) {
   const quote = lastKnownMarketQuote(assetId, data, cachedMarket);
   if (!quote) return "";
-  return `<small class="market-last-known"><strong>${escapeHTML(text("market.lastKnown", "آخرین مقدار ثبت‌شده"))}:</strong> ${escapeHTML(formatMarketPrice(quote.price, { unit: quote.unit || currentItem?.unit || INSTRUMENT_REGISTRY[assetId]?.unit }))} · ${escapeHTML(text("market.lastKnownObserved", "مشاهده"))} ${escapeHTML(formatDateTime(quote.observedAt))} · ${escapeHTML(freshnessLabel(quote.observedAt))}</small>`;
+  return `<small class="market-last-known"><strong>${escapeHTML(text("market.lastKnown", "آخرین مقدار ثبت‌شده"))}:</strong> <bdi dir="auto">${escapeHTML(formatMarketPrice(quote.price, { unit: quote.unit || currentItem?.unit || INSTRUMENT_REGISTRY[assetId]?.unit }))}</bdi> · ${escapeHTML(text("market.lastKnownObserved", "مشاهده"))} ${escapeHTML(formatDateTime(quote.observedAt))} · ${escapeHTML(freshnessLabel(quote.observedAt))}</small>`;
 }
 
 function marketConflictSourcesMarkup(item) {
@@ -1366,7 +1366,7 @@ function marketConflictSourcesMarkup(item) {
   const values = item.sourceValues
     .map((source) => {
       const observed = source.observedAt ? formatDateTime(source.observedAt) : "زمان مشاهده نامشخص";
-      return `<div class="market-conflict-source"><strong>${escapeHTML(source.source || "منبع بازار")}</strong><b>${escapeHTML(formatMarketPrice(source.price, item))}</b><small>زمان مشاهده: ${escapeHTML(observed)}</small></div>`;
+      return `<div class="market-conflict-source"><strong>${escapeHTML(source.source || "منبع بازار")}</strong><b><bdi dir="auto">${escapeHTML(formatMarketPrice(source.price, item))}</bdi></b><small>زمان مشاهده: ${escapeHTML(observed)}</small></div>`;
     })
     .join("");
   return `<div class="market-conflict-values" aria-label="مقادیر منابع متعارض">${values}</div>`;
@@ -1404,7 +1404,7 @@ function renderMarket(data, cachedMarket = lastKnownMarket) {
         ? "اختلاف منابع؛ عدد میانه با اطمینان پایین"
         : text(`market.quality.${item.status || "healthy"}`);
       const basis = text(`market.quoteType.${item.quoteType || "direct"}`);
-      return `<div class="market-row"><div><span class="asset-dot asset-${key === "dollar" ? "currency" : key}"></span><strong>${escapeHTML(label.title)}</strong><small>${escapeHTML(label.detail)} · ${escapeHTML(basis)}</small></div><div class="market-value"><strong>${escapeHTML(formatMarketPrice(item.price, item))}</strong><span class="${changeClass}">${changeLabel}</span><small>${escapeHTML(quality)} · ${escapeHTML(String(item.sourceCount || 0))} ${escapeHTML(text("market.sources", "منبع"))}</small><small>${escapeHTML(timeLabels)}</small>${marketConsensusNote(item)}${item.reconciliationNote ? `<small class="data-note-warning">${escapeHTML(item.reconciliationNote)}</small>` : ""}${marketSourceValuesMarkup(item)}</div></div>`;
+      return `<div class="market-row"><div><span class="asset-dot asset-${key === "dollar" ? "currency" : key}"></span><strong>${escapeHTML(label.title)}</strong><small>${escapeHTML(label.detail)} · ${escapeHTML(basis)}</small></div><div class="market-value"><strong><bdi dir="auto">${escapeHTML(formatMarketPrice(item.price, item))}</bdi></strong><span class="${changeClass}"><bdi dir="auto">${changeLabel}</bdi></span><small>${escapeHTML(quality)} · ${escapeHTML(String(item.sourceCount || 0))} ${escapeHTML(text("market.sources", "منبع"))}</small><small>${escapeHTML(timeLabels)}</small>${marketConsensusNote(item)}${item.reconciliationNote ? `<small class="data-note-warning">${escapeHTML(item.reconciliationNote)}</small>` : ""}${marketSourceValuesMarkup(item)}</div></div>`;
     })
     .join("");
   const fixed = currentMarket.funds && currentMarket.funds.fixedIncome;
@@ -1413,7 +1413,7 @@ function renderMarket(data, cachedMarket = lastKnownMarket) {
     fixed.effectiveAnnualReturn !== null &&
     fixed.effectiveAnnualReturn !== undefined &&
     Number.isFinite(Number(fixed.effectiveAnnualReturn))
-      ? `<div class="market-row"><div><span class="asset-dot asset-fixed"></span><strong>${escapeHTML(text("assets.fixed.title"))}</strong><small>${escapeHTML(text("market.fixedDetail"))}</small></div><div class="market-value"><strong>${formatPercent(fixed.effectiveAnnualReturn)}</strong><small>${escapeHTML(text("market.annual"))} · ${escapeHTML(String(fixed.sourceCount || 0))} ${escapeHTML(text("market.sources", "منبع"))}</small><small>${escapeHTML(marketTimeLabels(fixed, currentMarket.updatedAt))}</small></div></div>`
+      ? `<div class="market-row"><div><span class="asset-dot asset-fixed"></span><strong>${escapeHTML(text("assets.fixed.title"))}</strong><small>${escapeHTML(text("market.fixedDetail"))}</small></div><div class="market-value"><strong><bdi dir="auto">${formatPercent(fixed.effectiveAnnualReturn)}</bdi></strong><small>${escapeHTML(text("market.annual"))} · ${escapeHTML(String(fixed.sourceCount || 0))} ${escapeHTML(text("market.sources", "منبع"))}</small><small>${escapeHTML(marketTimeLabels(fixed, currentMarket.updatedAt))}</small></div></div>`
       : `<div class="market-row market-row-unavailable"><div><span class="asset-dot asset-fixed"></span><strong>${escapeHTML(text("assets.fixed.title"))}</strong><small>${escapeHTML(text("market.fixedDetail"))}</small></div><div class="market-value"><strong>—</strong><small>داده در دسترس نیست</small></div></div>`;
   marketDataEl.innerHTML =
     cards + fixedCard ||
@@ -1530,7 +1530,7 @@ function marketSourceValuesMarkup(item) {
               ? " · پرت؛ در برآورد لحاظ نشد"
               : " · در برآورد لحاظ نشد"
           : "";
-      return `<span class="${conflict ? "is-outlier" : ""}" title="${escapeHTML(quote + observed + exclusion)}">${escapeHTML(formatMarketPrice(source.price, item))} · ${escapeHTML(source.source)}${escapeHTML(exclusion)}</span>`;
+      return `<span class="${conflict ? "is-outlier" : ""}" title="${escapeHTML(quote + observed + exclusion)}"><bdi dir="auto">${escapeHTML(formatMarketPrice(source.price, item))}</bdi> · ${escapeHTML(source.source)}${escapeHTML(exclusion)}</span>`;
     })
     .join("")}</div>`;
 }

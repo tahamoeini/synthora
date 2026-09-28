@@ -230,7 +230,7 @@ async function providerB() {
 }
 
 async function providerC(requestTimeoutMs = 600, requested = ["dollar", "gold"]) {
-  const [fiat, gold] = await Promise.all([
+  const [fiatResult, goldResult] = await Promise.allSettled([
     requested.includes("dollar")
       ? fetchJson(NAVASAN_RAW_BASE + "fiat.json", { requestTimeoutMs })
       : Promise.resolve(null),
@@ -238,6 +238,12 @@ async function providerC(requestTimeoutMs = 600, requested = ["dollar", "gold"])
       ? fetchJson(NAVASAN_RAW_BASE + "gold.json", { requestTimeoutMs })
       : Promise.resolve(null),
   ]);
+  const hasSuccessfulFeed =
+    (requested.includes("dollar") && fiatResult.status === "fulfilled") ||
+    (requested.includes("gold") && goldResult.status === "fulfilled");
+  if (!hasSuccessfulFeed) throw new Error("No Navasan fallback feed responded");
+  const fiat = fiatResult.status === "fulfilled" ? fiatResult.value : null;
+  const gold = goldResult.status === "fulfilled" ? goldResult.value : null;
   const dollar = fiat && fiat.usd;
   const gold18 = gold && gold["18ayar"];
   const dollarTime =
@@ -301,22 +307,9 @@ async function providerCrypto(
       })
       .filter(Boolean);
   };
-  if (userSuppliedKey) {
-    if (typeof env?.API_USAGE_DB?.prepare !== "function")
-      return { quotes: await fetchQuotes(), cacheStatus: "uncached" };
-    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(apiKey));
-    const keyId = [...new Uint8Array(digest)]
-      .slice(0, 10)
-      .map((value) => value.toString(16).padStart(2, "0"))
-      .join("");
-    return await loadPlatformProviderQuotes(env, `coingecko-user-${keyId}`, {
-      maxAgeMs: 60_000,
-      maxStaleMs: 60 * 60_000,
-      monthlyLimit: 9500,
-      minimumIntervalSeconds: 60,
-      fetchQuotes,
-    });
-  }
+  // User-owned keys are used only for this request; their quotes and key IDs
+  // never enter the durable platform-provider cache or quota tables.
+  if (userSuppliedKey) return { quotes: await fetchQuotes(), cacheStatus: "uncached" };
   return await loadPlatformProviderQuotes(env, "coingecko", {
     maxAgeMs: 6 * 60_000,
     maxStaleMs: 24 * 60 * 60_000,
@@ -332,6 +325,7 @@ async function providerCoinMarketCap(requested, env) {
   const mapping = { bitcoin: "bitcoin", ethereum: "ethereum", tether: "tether" };
   const selected = Object.entries(mapping).filter(([, asset]) => requested.includes(asset));
   if (!selected.length) return { quotes: [], cacheStatus: "skipped" };
+  if (!apiKey) return { quotes: [], cacheStatus: "skipped" };
   const slugs = selected.map(([slug]) => slug).join(",");
   const url = `${COINMARKETCAP_QUOTES_URL}?slug=${encodeURIComponent(slugs)}&convert=USD`;
   const fetchQuotes = async () => {
@@ -1003,7 +997,10 @@ export async function onRequestGet(context = {}) {
       id: "coinMarketCap",
       run: () => providerCoinMarketCap([...selected], context.env),
       coordinated: false,
-      enabled: hasDurableSessionSecurity(context.env) && wantsAny("bitcoin", "ethereum", "tether"),
+      enabled:
+        hasDurableSessionSecurity(context.env) &&
+        Boolean(context.env?.COINMARKETCAP_API_KEY?.trim()) &&
+        wantsAny("bitcoin", "ethereum", "tether"),
     },
     {
       id: "binance",
