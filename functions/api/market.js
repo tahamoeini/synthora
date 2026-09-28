@@ -57,6 +57,8 @@ const DEFAULT_MARKET_ASSETS = Object.freeze([
   "bourseIndex",
   "fixedIncome",
 ]);
+export const SERVER_MARKET_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
+const SERVER_MARKET_CACHE_PREFIX = "market-response-v1:";
 const headers = {
   "User-Agent": "invest-consult/2.0 (+https://github.com/tahamoeini/invest-consult)",
   Accept: "text/html,application/json;q=0.9,*/*;q=0.8",
@@ -884,6 +886,45 @@ export function aggregate(asset, quotes) {
   };
 }
 
+export function parseMarketSourceOptions(urlLike) {
+  const url = urlLike instanceof URL ? urlLike : new URL(String(urlLike || "https://invest-consult.local/api/market"));
+  return {
+    sync: url.searchParams.get("sync") === "1",
+    layer: url.searchParams.get("layer") || "crawler",
+  };
+}
+
+export function marketResponseCacheKey(selected) {
+  return SERVER_MARKET_CACHE_PREFIX + [...selected].sort().join(",");
+}
+
+export function isFreshServerMarketCache(cached, now = Date.now(), maxAgeMs = SERVER_MARKET_CACHE_MAX_AGE_MS) {
+  if (!cached || !Number.isFinite(Number(cached.fetchedAt)) || !cached.quotes) return false;
+  const age = now - Number(cached.fetchedAt);
+  return age >= 0 && age <= maxAgeMs;
+}
+
+function serverQuotesFromSnapshot(snapshot, cacheAgeMs) {
+  return Object.entries(snapshot?.assets || {}).flatMap(([asset, item]) => {
+    const values = Array.isArray(item?.sourceValues) && item.sourceValues.length
+      ? item.sourceValues.filter((value) => value.accepted !== false)
+      : [{ source: item?.sources?.[0] || "server-cache", price: item?.price, observedAt: item?.observedAt, quoteType: item?.quoteType }];
+    return values
+      .filter((value) => Number.isFinite(Number(value?.price)) && Number(value.price) > 0)
+      .map((value) => ({
+        asset,
+        price: Number(value.price),
+        source: "Server cache · " + (value.source || "market"),
+        sourceTime: value.observedAt || null,
+        observedAt: value.observedAt || null,
+        retrievedAt: snapshot.updatedAt || null,
+        quoteType: value.quoteType === "derived" ? "derived" : "direct",
+        sourceLayer: "server-cache",
+        cacheAgeMs,
+      }));
+  });
+}
+
 export function parseRequestedAssets(urlLike) {
   const url = urlLike instanceof URL ? urlLike : new URL(String(urlLike || "https://invest-consult.local/api/market"));
   if (!url.searchParams.has("assets")) return null;
@@ -958,10 +999,21 @@ export async function onRequestGet(context = {}) {
   const startedAt = Date.now();
   const now = new Date().toISOString();
   const requestUrl = context.request?.url || "https://invest-consult.local/api/market";
+  const sourceOptions = parseMarketSourceOptions(requestUrl);
+  const selected = parseRequestedAssets(requestUrl) || new Set(DEFAULT_MARKET_ASSETS);
+  const cacheKey = marketResponseCacheKey(selected);
+  const cachedServerResponse =
+    sourceOptions.sync && hasDurableSessionSecurity(context.env)
+      ? await readPlatformProviderCache(context.env, cacheKey)
+      : null;
+  const serverCacheAgeMs = cachedServerResponse ? Date.now() - cachedServerResponse.fetchedAt : Infinity;
+  const serverSnapshot = isFreshServerMarketCache(cachedServerResponse, Date.now())
+    ? cachedServerResponse.quotes
+    : null;
+  const serverCacheQuotes = serverSnapshot ? serverQuotesFromSnapshot(serverSnapshot, serverCacheAgeMs) : [];
   const selectedKey = selectedProviderKey(context.request, context.env);
   const providerKey =
     !hasDurableSessionSecurity(context.env) && !selectedKey.userSupplied ? { ...selectedKey, key: "" } : selectedKey;
-  const selected = parseRequestedAssets(requestUrl) || new Set(DEFAULT_MARKET_ASSETS);
   const derivedAssets = new Set(["gold", "silver", "bitcoin", "ethereum", "tether", "platinum", "palladium", "copper"]);
   const needsConversion = [...selected].some((asset) => derivedAssets.has(asset));
   const baseAssets = new Set([...selected].filter((asset) => sourcePages[asset]));
@@ -974,6 +1026,7 @@ export async function onRequestGet(context = {}) {
       providerKey: `providerA-${[...baseAssets].sort().join("-")}`,
       quotaProvider: "providerA",
       enabled: baseAssets.size > 0,
+      localOnly: true,
     },
     {
       id: "providerB",
@@ -981,6 +1034,7 @@ export async function onRequestGet(context = {}) {
       providerKey: "providerB",
       quotaProvider: "providerB",
       enabled: baseAssets.has("dollar") || baseAssets.has("gold"),
+      localOnly: true,
     },
   ].filter((provider) => provider.enabled);
   const wantsAny = (...assets) => assets.some((asset) => selected.has(asset));
@@ -997,20 +1051,21 @@ export async function onRequestGet(context = {}) {
       coordinated: false,
       enabled: hasDurableSessionSecurity(context.env) && wantsAny("bitcoin", "ethereum", "tether"),
     },
-    { id: "binance", run: () => providerCryptoBinance([...selected]), enabled: wantsAny("bitcoin", "ethereum") },
-    { id: "metalsLive", run: providerGlobalMetals, enabled: wantsAny("silver", "platinum", "palladium", "copper") },
+    { id: "binance", run: () => providerCryptoBinance([...selected]), enabled: wantsAny("bitcoin", "ethereum"), localOnly: true },
+    { id: "metalsLive", run: providerGlobalMetals, enabled: wantsAny("silver", "platinum", "palladium", "copper"), localOnly: true },
     {
       id: "yahooMetals",
       run: () => providerYahooMetals([...selected]),
       enabled: context.env?.YAHOO_METALS_LICENSE_CONFIRMED === "true" && wantsAny("platinum", "palladium", "copper"),
+      localOnly: true,
     },
-    { id: "tsetmc", run: providerTsetmc, enabled: selected.has("bourseIndex") },
+    { id: "tsetmc", run: providerTsetmc, enabled: selected.has("bourseIndex"), localOnly: true },
   ].filter((provider) => provider.enabled);
   const activeDefinitions = [...primaryDefinitions, ...extendedDefinitions];
   const providerRuns = activeDefinitions.map(async (provider) => {
     let result;
     let cacheStatus = null;
-    if (provider.coordinated === false) result = await provider.run();
+    if (provider.localOnly || provider.coordinated === false) result = await provider.run();
     else {
       const coordinated = await loadCoordinatedProviderPayload(
         context.env,
@@ -1028,27 +1083,19 @@ export async function onRequestGet(context = {}) {
       cacheStatus: cacheStatus || (Array.isArray(result) ? null : result.cacheStatus || null),
     };
   });
-  const fixedIncomeRequest = selected.has("fixedIncome")
-    ? loadCoordinatedProviderPayload(context.env, "fixedIncome", getFixedIncomeMetric, {
-        maxAgeMs: 15 * 60_000,
-        maxStaleMs: 24 * 60 * 60_000,
-        quotaProvider: "fixedIncome",
-        minimumIntervalSeconds: 60,
-      })
-    : null;
+  const fixedIncomeRequest = selected.has("fixedIncome") ? getFixedIncomeMetric() : null;
   const [settledProviders, fixedIncomeSettled] = await Promise.all([
     Promise.allSettled(providerRuns),
     fixedIncomeRequest ? Promise.allSettled([fixedIncomeRequest]) : Promise.resolve([]),
   ]);
   const fixedIncomeOutcome = fixedIncomeSettled[0] || { status: "skipped" };
+  const cachedFixedIncome = serverSnapshot?.funds?.fixedIncome || null;
   const fixedIncome =
     fixedIncomeOutcome.status === "fulfilled"
-      ? {
-          ...fixedIncomeOutcome.value.payload,
-          status: fixedIncomeOutcome.value.cacheStatus === "stale" ? "stale" : "available",
-          cacheStatus: fixedIncomeOutcome.value.cacheStatus,
-        }
-      : null;
+      ? { ...fixedIncomeOutcome.value, status: "available", cacheStatus: "refreshed" }
+      : cachedFixedIncome
+        ? { ...cachedFixedIncome, status: "cached", cacheStatus: "cached" }
+        : null;
   const providerResults = new Map();
   settledProviders.forEach((result, index) => {
     providerResults.set(activeDefinitions[index].id, result);
@@ -1087,7 +1134,6 @@ export async function onRequestGet(context = {}) {
         () => providerC(600, fallbackAssets),
         { quotaProvider: "providerC" },
       );
-      const fallback = coordinated.payload;
       const fallbackQuotes = fallback.filter((item) => fallbackAssets.includes(item.asset));
       if (coordinated.cacheStatus === "stale") fallbackQuotes.forEach((item) => (item.cacheStale = true));
       primaryQuotes.push(...fallbackQuotes);
@@ -1112,7 +1158,7 @@ export async function onRequestGet(context = {}) {
     const result = providerResults.get(id);
     return result?.status === "fulfilled" ? result.value.quotes : [];
   });
-  const quotes = [...primaryQuotes, ...globalQuotes, ...referenceQuotes];
+  const quotes = [...primaryQuotes, ...globalQuotes, ...referenceQuotes, ...serverCacheQuotes];
   const auxiliaryAssets = ["gold", "silver"].filter((asset) => {
     if (!selected.has(asset)) return false;
     const status = aggregate(asset, quotes)?.status;
@@ -1196,6 +1242,12 @@ export async function onRequestGet(context = {}) {
     quoteCount: fixedIncome ? 1 : 0,
     ...(fixedIncome?.cacheStatus ? { cacheStatus: fixedIncome.cacheStatus } : {}),
   };
+  providerDiagnostics.serverSync = {
+    status: serverSnapshot ? "fresh" : sourceOptions.sync ? "unavailable" : "not-requested",
+    quoteCount: serverCacheQuotes.length,
+    maxAgeMs: SERVER_MARKET_CACHE_MAX_AGE_MS,
+    ageMs: Number.isFinite(serverCacheAgeMs) ? Math.max(0, serverCacheAgeMs) : null,
+  };
 
   const history = {};
   const tgjuHistory =
@@ -1264,8 +1316,7 @@ export async function onRequestGet(context = {}) {
       : {},
   };
 
-  return new Response(
-    JSON.stringify({
+  const responseBody = {
       updatedAt: now,
       assets,
       funds,
@@ -1290,8 +1341,17 @@ export async function onRequestGet(context = {}) {
         history: "https://www.tgju.org/",
       },
       note: "قیمت‌های داخلی به تومان نرمال‌سازی می‌شوند. قیمت‌های مشتق‌شده با منبع تبدیل مشخص هستند؛ قیمت متعارض برای ارزش‌گذاری استفاده نمی‌شود. دارایی‌های شاخصی بورس به‌عنوان مرجع نمایش داده می‌شوند و قیمت آینده پیش‌بینی نمی‌شود.",
-    }),
-    {
+    serverDataFresh: Boolean(serverSnapshot),
+    serverCacheAgeMs: Number.isFinite(serverCacheAgeMs) ? Math.max(0, serverCacheAgeMs) : null,
+    dataLayers: {
+      crawler: true,
+      userApiKey: Boolean(selectedKey.userSupplied),
+      serverSync: Boolean(serverSnapshot),
+    },
+  };
+  if (sourceOptions.sync && !selectedKey.userSupplied && hasDurableSessionSecurity(context.env))
+    await writePlatformProviderCache(context.env, cacheKey, responseBody, Date.now());
+  return new Response(JSON.stringify(responseBody), {
       headers: {
         "content-type": "application/json; charset=UTF-8",
         "cache-control": "private, no-store",
