@@ -127,9 +127,11 @@
       }
     },
     "empty": "داده زنده فعلا در دسترس نیست.",
+    "providerDescription": "نوبیتکس، بایننس و CoinMarketCap عمومی بدون کلید قیمت رمزارز می‌دهند؛ Gold API نرخ جهانی طلا، نقره، پلاتین و پالادیوم را اضافه می‌کند. کلیدهای اختیاری CoinGecko و CoinMarketCap منابع رمزارز بیشتری می‌افزایند. هر کلید فقط در هدر درخواست همان منبع ارسال می‌شود.",
     "noChange": "تغییر روزانه نامشخص",
     "sources": "منبع",
     "sourceQuotes": "قیمت معتبر",
+    "sourceCoverage": "منبع پذیرفته‌شده / بررسی‌شده: {accepted}/{attempted}",
     "updated": "آخرین خوانش",
     "observedAt": "زمان مشاهده منبع",
     "retrievedAt": "زمان دریافت",
@@ -146,6 +148,14 @@
     "providerResponded": "پاسخ داده",
     "providerEmpty": "پاسخ داده؛ نرخ قابل‌خواندن نداشت",
     "providerFailed": "ناموفق",
+    "providerFailure": {
+      "timeout": "زمان درخواست تمام شد",
+      "rate_limited": "محدودیت تعداد درخواست",
+      "access_denied": "دسترسی منبع رد شد",
+      "upstream_unavailable": "منبع موقتاً در دسترس نیست",
+      "invalid_response": "پاسخ منبع قابل خواندن نیست",
+      "request_failed": "دریافت از منبع انجام نشد"
+    },
     "providerSkipped": "در این درخواست فراخوانی نشد",
     "providerQuotesReturned": "نرخ خوانده‌شده",
     "coverageUnavailable": "در دسترس نیست",

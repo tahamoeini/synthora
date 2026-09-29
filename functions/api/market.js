@@ -20,16 +20,12 @@ const COINMARKETCAP_QUOTES_URL = "https://pro-api.coinmarketcap.com/v1/cryptocur
 const COINMARKETCAP_PUBLIC_URL = "https://pro-api.coinmarketcap.com/public-api/v2/simple/price";
 const BINANCE_TICKER_URL = "https://api.binance.com/api/v3/ticker/24hr";
 const NOBITEX_STATS_URL = "https://api.nobitex.ir/market/stats";
+const GOLD_API_PRICE_BASE = "https://api.gold-api.com/price/";
 const METALS_LIVE_URL = "https://api.metals.live/v1/spot";
 const YAHOO_METAL_CHART_BASE = "https://query1.finance.yahoo.com/v8/finance/chart/";
 const TSETMC_INDEX_URL = "https://cdn.tsetmc.com/api/Index/GetIndexB1LastDay";
 const TROY_OUNCE_TO_GRAMS = 31.1034768;
 const sourcePages = { dollar: "price_dollar_rl", gold: "geram18", silver: "silver_999" };
-const tgjuGlobalMetalPages = {
-  platinum: { page: "platinum", divisor: TROY_OUNCE_TO_GRAMS },
-  palladium: { page: "palladium", divisor: TROY_OUNCE_TO_GRAMS },
-  copper: { page: "base_global_copper", divisor: 1_000_000 },
-};
 const fundPages = { fixedIncome: "https://charisma.ir/funds/fixedincomefund" };
 // Keep each upstream bounded so parallel sources fit the interactive budget.
 const UPSTREAM_TIMEOUT_MS = 1800;
@@ -39,18 +35,6 @@ const CONSENSUS_POLICY = Object.freeze({
   calibrated: false,
   agreementTolerancePct: Object.freeze({ fx: 0.25, gold: 0.1, commodities: null, crypto: null, iranEquity: null }),
   spreadWarningPct: Object.freeze({ fx: 0.25, gold: 0.1, commodities: 1, crypto: 1, iranEquity: 0.5 }),
-});
-const CONFIGURED_SOURCE_COUNTS = Object.freeze({
-  dollar: 3,
-  gold: 5,
-  silver: 3,
-  bitcoin: 3,
-  ethereum: 3,
-  tether: 3,
-  platinum: 2,
-  palladium: 2,
-  copper: 2,
-  bourseIndex: 2,
 });
 const DEFAULT_MARKET_ASSETS = Object.freeze([
   "dollar",
@@ -198,7 +182,7 @@ async function providerA(requested = Object.keys(sourcePages)) {
       const changePct = firstNumberAfter(html, 'data-col="info.last_trade.last_change_percentage"', 300);
       const revision = html.match(/data-revision="([^"]+)"/);
       const serverTime = html.match(/id="server-time"[^>]+data-value="([^"]+)"/);
-      const item = quote(asset, price === null ? null : price / 10, "Provider A", {
+      const item = quote(asset, price === null ? null : price / 10, "TGJU", {
         changePct,
         sourceUrl: TGJU_BASE + page,
         sourceTime: serverTime ? serverTime[1] : null,
@@ -241,8 +225,8 @@ async function providerB() {
   if (data.rest) throw new Error("Quote response was incomplete");
   const sourceTime = data.last_modified || data.created || null;
   return [
-    quote("dollar", parseNumber(data.usd1), "Provider B", { sourceUrl: BONBAST_BASE + "/", sourceTime }),
-    quote("gold", parseNumber(data.gol18), "Provider B", { sourceUrl: BONBAST_BASE + "/", sourceTime }),
+    quote("dollar", parseNumber(data.usd1), "Bonbast", { sourceUrl: BONBAST_BASE + "/", sourceTime }),
+    quote("gold", parseNumber(data.gol18), "Bonbast", { sourceUrl: BONBAST_BASE + "/", sourceTime }),
   ].filter(Boolean);
 }
 
@@ -269,14 +253,14 @@ async function providerC(requestTimeoutMs = 600, requested = ["dollar", "gold"])
     gold18 && Number.isFinite(Number(gold18.date)) ? new Date(Number(gold18.date) * 1000).toISOString() : null;
   return [
     requested.includes("dollar")
-      ? quote("dollar", parseNumber(dollar && dollar.value), "Provider C", {
+      ? quote("dollar", parseNumber(dollar && dollar.value), "Navasan", {
           changePct: parseNumber(dollar && dollar.change_pct),
           sourceUrl: "https://github.com/HosseinOdd/Navasan-API",
           sourceTime: dollarTime,
         })
       : null,
     requested.includes("gold")
-      ? quote("gold", parseNumber(gold18 && gold18.value), "Provider C", {
+      ? quote("gold", parseNumber(gold18 && gold18.value), "Navasan", {
           changePct: parseNumber(gold18 && gold18.change_pct),
           sourceUrl: "https://github.com/HosseinOdd/Navasan-API",
           sourceTime: goldTime,
@@ -345,13 +329,13 @@ async function providerCoinMarketCap(requested, env, userKey = "", userSuppliedK
   if (!selected.length) return { quotes: [], cacheStatus: "skipped" };
   const apiKey = userSuppliedKey
     ? userKey
-    : typeof env?.COINMARKETCAP_API_KEY === "string"
+    : hasDurableSessionSecurity(env) && typeof env?.COINMARKETCAP_API_KEY === "string"
       ? env.COINMARKETCAP_API_KEY.trim()
       : "";
-  const symbols = Object.fromEntries(selected.map(([, asset]) => [asset, asset === "bitcoin" ? "BTC" : asset === "ethereum" ? "ETH" : "USDT"]));
+  const slugs = selected.map(([slug]) => slug);
   const url = apiKey
-    ? `${COINMARKETCAP_QUOTES_URL}?slug=${encodeURIComponent(selected.map(([slug]) => slug).join(","))}&convert=USD`
-    : `${COINMARKETCAP_PUBLIC_URL}?symbol=${encodeURIComponent(Object.values(symbols).join(","))}&convert=USD`;
+    ? `${COINMARKETCAP_QUOTES_URL}?slug=${encodeURIComponent(slugs.join(","))}&convert=USD`
+    : `${COINMARKETCAP_PUBLIC_URL}?slug=${encodeURIComponent(slugs.join(","))}&convert=USD`;
   const fetchQuotes = async () => {
     const data = await fetchJson(url, {
       ...(apiKey ? { headers: { "X-CMC_PRO_API_KEY": apiKey } } : {}),
@@ -362,16 +346,15 @@ async function providerCoinMarketCap(requested, env, userKey = "", userSuppliedK
       : Object.values(data?.data || {}).flatMap((row) => (Array.isArray(row) ? row : [row]));
     return rows
       .map((item) => {
-        const asset =
-          item?.slug ||
-          selected.find(([, selectedAsset]) => symbols[selectedAsset] === item?.symbol)?.[1];
+        const asset = item?.slug;
         if (!selected.some(([, selectedAsset]) => selectedAsset === asset)) return null;
-      const usd = parseNumber(
-        item?.price ?? item?.quote?.USD?.price ?? item?.quotes?.find((row) => row.symbol === "USD")?.price,
-      );
+        const usd = parseNumber(
+          item?.price ?? item?.quote?.USD?.price ?? item?.quotes?.find((row) => row.symbol === "USD")?.price,
+        );
         return quote(asset, usd, "CoinMarketCap", {
           changePct: parseNumber(
-            item?.quote?.USD?.percent_change_24h ?? item?.quotes?.find((row) => row.symbol === "USD")?.percent_change_24h,
+            item?.quote?.USD?.percent_change_24h ??
+              item?.quotes?.find((row) => row.symbol === "USD")?.percent_change_24h,
           ),
           sourceUrl: "https://coinmarketcap.com/api/documentation/pro-api-reference/cryptocurrency",
           sourceTime:
@@ -552,28 +535,38 @@ async function providerGlobalMetals() {
     .filter(Boolean);
 }
 
-async function providerTgjuGlobalMetals(requested = []) {
+async function providerGoldApi(requested = []) {
+  const metals = {
+    gold: { symbol: "XAU", factor: 0.75 },
+    silver: { symbol: "XAG", factor: 1 },
+    platinum: { symbol: "XPT", factor: 1 },
+    palladium: { symbol: "XPD", factor: 1 },
+  };
+  const selected = Object.entries(metals).filter(([asset]) => requested.includes(asset));
+  if (!selected.length) return [];
   const results = await Promise.allSettled(
-    Object.entries(tgjuGlobalMetalPages)
-      .filter(([asset]) => requested.includes(asset))
-      .map(async ([asset, meta]) => {
-        const url = TGJU_BASE + meta.page;
-        const html = await fetchText(url);
-        const price = firstNumberAfter(html, 'data-col="info.last_trade.PDrCotVal"', 500);
-        if (!Number.isFinite(price) || price <= 0) throw new Error("TGJU global metal quote not found");
-        const changePct = firstNumberAfter(html, 'data-col="info.last_trade.last_change_percentage"', 300);
-        const serverTime = html.match(/id="server-time"[^>]+data-value="([^"]+)"/);
-        return quote(asset, price / meta.divisor, "TGJU Global", {
-          changePct,
-          sourceUrl: url,
-          sourceTime: serverTime ? serverTime[1] : null,
-          unit: "gram",
-          currency: "USD",
-          quoteType: "direct",
-        });
-      }),
+    selected.map(async ([asset, metal]) => {
+      const url = GOLD_API_PRICE_BASE + metal.symbol;
+      const data = await fetchJson(url, { requestTimeoutMs: 1500, cf: { cacheTtl: 30, cacheEverything: true } });
+      const priceUsdPerTroyOunce = parseNumber(data?.price);
+      if (data?.symbol !== metal.symbol || data?.currency !== "USD" || !isPositiveNumber(priceUsdPerTroyOunce))
+        throw new Error("Gold API returned an unexpected quote unit");
+      return quote(asset, (priceUsdPerTroyOunce * metal.factor) / TROY_OUNCE_TO_GRAMS, "Gold API", {
+        sourceUrl: url,
+        sourceTime: data.updatedAt || data.timestamp || null,
+        unit: "gram",
+        currency: "USD",
+        quoteType: "direct",
+      });
+    }),
   );
-  return results.filter((result) => result.status === "fulfilled").map((result) => result.value).filter(Boolean);
+  const quotes = results
+    .filter((result) => result.status === "fulfilled")
+    .map((result) => result.value)
+    .filter(Boolean);
+  if (!quotes.length && results.length)
+    throw results.find((result) => result.status === "rejected")?.reason || new Error("Gold API returned no quotes");
+  return quotes;
 }
 
 async function providerYahooMetals(requested = ["platinum", "palladium", "copper"]) {
@@ -885,7 +878,6 @@ export function aggregate(asset, quotes) {
     status,
     confidence,
     sourceCount: usable.length,
-    configuredSourceCount: CONFIGURED_SOURCE_COUNTS[asset] || valid.length,
     spreadPct: Number(spreadPct.toFixed(3)),
     acceptedSpreadPct: Number(acceptedSpreadPct.toFixed(3)),
     spreadWarningPct,
@@ -1095,7 +1087,13 @@ export async function onRequestGet(context = {}) {
     },
     {
       id: "coinMarketCap",
-      run: () => providerCoinMarketCap([...selected], context.env, selectedCoinMarketCap.key, selectedCoinMarketCap.userSupplied),
+      run: () =>
+        providerCoinMarketCap(
+          [...selected],
+          context.env,
+          selectedCoinMarketCap.key,
+          selectedCoinMarketCap.userSupplied,
+        ),
       coordinated: false,
       assetIds: [...selected].filter((asset) => ["bitcoin", "ethereum", "tether"].includes(asset)),
       enabled: wantsAny("bitcoin", "ethereum", "tether"),
@@ -1122,10 +1120,10 @@ export async function onRequestGet(context = {}) {
       localOnly: true,
     },
     {
-      id: "tgjuMetals",
-      run: () => providerTgjuGlobalMetals([...selected]),
-      assetIds: [...selected].filter((asset) => Object.hasOwn(tgjuGlobalMetalPages, asset)),
-      enabled: [...selected].some((asset) => Object.hasOwn(tgjuGlobalMetalPages, asset)),
+      id: "goldApi",
+      run: () => providerGoldApi([...selected]),
+      assetIds: [...selected].filter((asset) => ["gold", "silver", "platinum", "palladium"].includes(asset)),
+      enabled: wantsAny("gold", "silver", "platinum", "palladium"),
       localOnly: true,
     },
     {
@@ -1138,6 +1136,13 @@ export async function onRequestGet(context = {}) {
     {
       id: "tsetmc",
       run: providerTsetmc,
+      assetIds: selected.has("bourseIndex") ? ["bourseIndex"] : [],
+      enabled: selected.has("bourseIndex"),
+      localOnly: true,
+    },
+    {
+      id: "tgjuIndex",
+      run: providerTgjuIndex,
       assetIds: selected.has("bourseIndex") ? ["bourseIndex"] : [],
       enabled: selected.has("bourseIndex"),
       localOnly: true,
@@ -1170,21 +1175,7 @@ export async function onRequestGet(context = {}) {
   settledProviders.forEach((result, index) => {
     providerResults.set(activeDefinitions[index].id, result);
   });
-  const tsetmcOutcome = providerResults.get("tsetmc");
-  const tsetmcQuotes = tsetmcOutcome?.status === "fulfilled" ? tsetmcOutcome.value.quotes : [];
-  let tgjuIndexOutcome = { status: "skipped" };
-  if (selected.has("bourseIndex") && !tsetmcQuotes.some((item) => item.asset === "bourseIndex")) {
-    try {
-      const result = await providerTgjuIndex();
-      tgjuIndexOutcome = {
-        status: "fulfilled",
-        value: { quotes: result.quotes || [], history: result.history || {} },
-      };
-    } catch {
-      tgjuIndexOutcome = { status: "rejected" };
-    }
-  }
-  providerResults.set("tgjuIndex", tgjuIndexOutcome);
+  const tgjuIndexOutcome = providerResults.get("tgjuIndex") || { status: "skipped" };
   const primaryQuotes = ["providerA", "providerB"].flatMap((id) => {
     const result = providerResults.get(id);
     return result?.status === "fulfilled" ? result.value.quotes : [];
@@ -1205,10 +1196,12 @@ export async function onRequestGet(context = {}) {
   }
 
   const preliminaryDollar = aggregate("dollar", primaryQuotes);
-  const rawGlobalQuotes = ["coinGecko", "coinMarketCap", "binance", "metalsLive", "tgjuMetals", "yahooMetals"].flatMap((id) => {
-    const result = providerResults.get(id);
-    return result?.status === "fulfilled" ? result.value.quotes : [];
-  });
+  const rawGlobalQuotes = ["coinGecko", "coinMarketCap", "binance", "metalsLive", "goldApi", "yahooMetals"].flatMap(
+    (id) => {
+      const result = providerResults.get(id);
+      return result?.status === "fulfilled" ? result.value.quotes : [];
+    },
+  );
   const directLocalQuotes = ["nobitex"].flatMap((id) => {
     const result = providerResults.get(id);
     return result?.status === "fulfilled" ? result.value.quotes : [];
@@ -1327,6 +1320,9 @@ export async function onRequestGet(context = {}) {
   fallbackAssets.forEach((asset) => attemptedProviders.get(asset)?.add("providerC"));
   if (tgjuIndexOutcome.status !== "skipped") attemptedProviders.get("bourseIndex")?.add("tgjuIndex");
   auxiliaryAssets.forEach((asset) => attemptedProviders.get(asset)?.add("auxiliary"));
+  selected.forEach((asset) => {
+    if (assets[asset]) assets[asset].configuredSourceCount = attemptedProviders.get(asset)?.size || 0;
+  });
 
   const history = {};
   const tgjuHistory =
@@ -1337,7 +1333,7 @@ export async function onRequestGet(context = {}) {
       history[asset] = series.map((point) => ({
         date: point.date,
         price: Math.round(point.value),
-        source: "Provider A",
+        source: "TGJU",
       }));
   });
   const tgjuIndexHistory =
@@ -1409,8 +1405,8 @@ export async function onRequestGet(context = {}) {
         { id: "coinMarketCap", name: "CoinMarketCap", url: COINMARKETCAP_PUBLIC_URL },
         { id: "nobitex", name: "Nobitex public market stats", url: NOBITEX_STATS_URL },
         { id: "binance", name: "Binance public ticker", url: BINANCE_TICKER_URL },
+        { id: "goldApi", name: "Gold API", url: GOLD_API_PRICE_BASE },
         { id: "metalsLive", name: "Metals.live", url: METALS_LIVE_URL },
-        { id: "tgjuMetals", name: "TGJU global metals", url: "https://www.tgju.org/profile/" },
         { id: "yahooMetals", name: "Yahoo Finance futures chart", url: YAHOO_METAL_CHART_BASE },
         { id: "tsetmc", name: "TSETMC", url: TSETMC_INDEX_URL },
         { id: "tgjuIndex", name: "TGJU Tehran general index", url: TGJU_BASE + "gc30" },
@@ -1427,7 +1423,12 @@ export async function onRequestGet(context = {}) {
       serverSync: Boolean(serverSnapshot),
     },
   };
-  if (sourceOptions.sync && !selectedKey.userSupplied && hasDurableSessionSecurity(context.env))
+  if (
+    sourceOptions.sync &&
+    !selectedKey.userSupplied &&
+    !selectedCoinMarketCap.userSupplied &&
+    hasDurableSessionSecurity(context.env)
+  )
     await writePlatformProviderCache(context.env, cacheKey, responseBody, Date.now());
   return new Response(JSON.stringify(responseBody), {
     headers: {

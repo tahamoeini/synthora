@@ -44,6 +44,14 @@ test("each static locale catalog contains the complete Persian base key shape", 
   }
 });
 
+test("market source coverage labels resolve their count placeholders in every locale", () => {
+  for (const locale of ["fa", "en", "ru", "zh"]) {
+    const template = readCatalog(locale).market.sourceCoverage;
+    const rendered = template.replaceAll("{accepted}", "2").replaceAll("{attempted}", "3");
+    assert.doesNotMatch(rendered, /\{[^}]+\}/u, locale + " leaves a source coverage placeholder unresolved");
+  }
+});
+
 test("runtime-rendered copy is part of each complete locale resource", () => {
   for (const locale of ["en", "ru", "zh"]) {
     const phrases = readCatalog(locale).phrases;

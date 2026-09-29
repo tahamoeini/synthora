@@ -773,8 +773,12 @@ function restoreProviderApiKey() {
     if (!status) return;
     status.textContent = key
       ? text(
-          providerKeyStorageMode === "device" ? "کلید روی همین دستگاه ذخیره است." : "کلید تا پایان نشست مرورگر ذخیره است.",
-          providerKeyStorageMode === "device" ? "Key is saved on this device." : "Key is saved for this browser session.",
+          providerKeyStorageMode === "device"
+            ? "کلید روی همین دستگاه ذخیره است."
+            : "کلید تا پایان نشست مرورگر ذخیره است.",
+          providerKeyStorageMode === "device"
+            ? "Key is saved on this device."
+            : "Key is saved for this browser session.",
         )
       : text("کلیدی ثبت نشده؛ در صورت نیاز، کلید این منبع را وارد کن.");
     status.className = "transfer-status transfer-neutral";
@@ -783,8 +787,7 @@ function restoreProviderApiKey() {
 
 function saveProviderApiKey(event) {
   if (event.currentTarget?.id === "provider-key-form") event.preventDefault();
-  const provider =
-    event.currentTarget?.dataset.providerKeySave || document.activeElement?.dataset.providerKeyInput;
+  const provider = event.currentTarget?.dataset.providerKeySave || document.activeElement?.dataset.providerKeyInput;
   if (!["coingecko", "coinmarketcap"].includes(provider)) return;
   const isCoinMarketCap = provider === "coinmarketcap";
   const input = $(`#provider-api-key-${provider}`);
@@ -1391,6 +1394,17 @@ function marketUnavailableMessage(item, diagnostics) {
   return text("market.unavailable");
 }
 
+function marketSourceCoverageLabel(item, diagnostics) {
+  const accepted = Number(item?.sourceCount ?? diagnostics?.successful) || 0;
+  const configured = Number(item?.configuredSourceCount ?? diagnostics?.attempted) || 0;
+  const attempted = configured || Math.max(accepted, Array.isArray(item?.sources) ? item.sources.length : 0);
+  if (attempted > 0)
+    return text("market.sourceCoverage", "Accepted / attempted sources: {accepted}/{attempted}")
+      .replaceAll("{accepted}", formatIRR(accepted))
+      .replaceAll("{attempted}", formatIRR(attempted));
+  return `${formatIRR(accepted)} ${text("market.sources", "source")}`;
+}
+
 function lastKnownPriceMarkup(assetId, data, cachedMarket, currentItem) {
   const quote = lastKnownMarketQuote(assetId, data, cachedMarket);
   if (!quote) return "";
@@ -1424,10 +1438,12 @@ function renderMarket(data, cachedMarket = lastKnownMarket) {
       const hasPrice =
         item && item.status !== "conflicted" && item.price !== null && Number.isFinite(Number(item.price));
       if (!hasPrice) {
-        const detail = marketUnavailableMessage(item, currentMarket.diagnostics?.assets?.[key]);
+        const assetDiagnostics = currentMarket.diagnostics?.assets?.[key];
+        const detail = marketUnavailableMessage(item, assetDiagnostics);
+        const coverage = marketSourceCoverageLabel(item, assetDiagnostics);
         const lastKnown = lastKnownPriceMarkup(key, currentMarket, cachedMarket, item);
         const conflictValues = marketConflictSourcesMarkup(item);
-        return `<div class="market-row market-row-unavailable"><div><span class="asset-dot asset-${key === "dollar" ? "currency" : key}"></span><strong>${escapeHTML(label.title)}</strong><small>${escapeHTML(label.detail)}</small></div><div class="market-value"><strong>—</strong><small>${escapeHTML(detail)}</small>${conflictValues}${lastKnown}</div></div>`;
+        return `<div class="market-row market-row-unavailable"><div><span class="asset-dot asset-${key === "dollar" ? "currency" : key}"></span><strong>${escapeHTML(label.title)}</strong><small>${escapeHTML(label.detail)}</small></div><div class="market-value"><strong>—</strong><small>${escapeHTML(detail)} · ${escapeHTML(coverage)}</small>${conflictValues}${lastKnown}</div></div>`;
       }
       const change =
         item.changePct === null || item.changePct === undefined || item.changePct === "" ? NaN : Number(item.changePct);
@@ -1440,7 +1456,8 @@ function renderMarket(data, cachedMarket = lastKnownMarket) {
         ? "اختلاف منابع؛ عدد میانه با اطمینان پایین"
         : text(`market.quality.${item.status || "healthy"}`);
       const basis = text(`market.quoteType.${item.quoteType || "direct"}`);
-      return `<div class="market-row"><div><span class="asset-dot asset-${key === "dollar" ? "currency" : key}"></span><strong>${escapeHTML(label.title)}</strong><small>${escapeHTML(label.detail)} · ${escapeHTML(basis)}</small></div><div class="market-value"><strong><bdi dir="auto">${escapeHTML(formatMarketPrice(item.price, item))}</bdi></strong><span class="${changeClass}"><bdi dir="auto">${changeLabel}</bdi></span><small>${escapeHTML(quality)} · ${escapeHTML(String(item.sourceCount || 0))} ${escapeHTML(text("market.sources", "منبع"))}</small><small>${escapeHTML(timeLabels)}</small>${marketConsensusNote(item)}${item.reconciliationNote ? `<small class="data-note-warning">${escapeHTML(item.reconciliationNote)}</small>` : ""}${marketSourceValuesMarkup(item)}</div></div>`;
+      const coverage = marketSourceCoverageLabel(item, currentMarket.diagnostics?.assets?.[key]);
+      return `<div class="market-row"><div><span class="asset-dot asset-${key === "dollar" ? "currency" : key}"></span><strong>${escapeHTML(label.title)}</strong><small>${escapeHTML(label.detail)} · ${escapeHTML(basis)}</small></div><div class="market-value"><strong><bdi dir="auto">${escapeHTML(formatMarketPrice(item.price, item))}</bdi></strong><span class="${changeClass}"><bdi dir="auto">${changeLabel}</bdi></span><small>${escapeHTML(quality)} · ${escapeHTML(coverage)}</small><small>${escapeHTML(timeLabels)}</small>${marketConsensusNote(item)}${item.reconciliationNote ? `<small class="data-note-warning">${escapeHTML(item.reconciliationNote)}</small>` : ""}${marketSourceValuesMarkup(item)}</div></div>`;
     })
     .join("");
   const fixed = currentMarket.funds && currentMarket.funds.fixedIncome;
@@ -1449,8 +1466,8 @@ function renderMarket(data, cachedMarket = lastKnownMarket) {
     fixed.effectiveAnnualReturn !== null &&
     fixed.effectiveAnnualReturn !== undefined &&
     Number.isFinite(Number(fixed.effectiveAnnualReturn))
-      ? `<div class="market-row"><div><span class="asset-dot asset-fixed"></span><strong>${escapeHTML(text("assets.fixed.title"))}</strong><small>${escapeHTML(text("market.fixedDetail"))}</small></div><div class="market-value"><strong><bdi dir="auto">${formatPercent(fixed.effectiveAnnualReturn)}</bdi></strong><small>${escapeHTML(text("market.annual"))} · ${escapeHTML(String(fixed.sourceCount || 0))} ${escapeHTML(text("market.sources", "منبع"))}</small><small>${escapeHTML(marketTimeLabels(fixed, currentMarket.updatedAt))}</small></div></div>`
-      : `<div class="market-row market-row-unavailable"><div><span class="asset-dot asset-fixed"></span><strong>${escapeHTML(text("assets.fixed.title"))}</strong><small>${escapeHTML(text("market.fixedDetail"))}</small></div><div class="market-value"><strong>—</strong><small>داده در دسترس نیست</small></div></div>`;
+      ? `<div class="market-row"><div><span class="asset-dot asset-fixed"></span><strong>${escapeHTML(text("assets.fixed.title"))}</strong><small>${escapeHTML(text("market.fixedDetail"))}</small></div><div class="market-value"><strong><bdi dir="auto">${formatPercent(fixed.effectiveAnnualReturn)}</bdi></strong><small>${escapeHTML(text("market.annual"))} · ${escapeHTML(marketSourceCoverageLabel(fixed, currentMarket.diagnostics?.funds?.fixedIncome))}</small><small>${escapeHTML(marketTimeLabels(fixed, currentMarket.updatedAt))}</small></div></div>`
+      : `<div class="market-row market-row-unavailable"><div><span class="asset-dot asset-fixed"></span><strong>${escapeHTML(text("assets.fixed.title"))}</strong><small>${escapeHTML(text("market.fixedDetail"))}</small></div><div class="market-value"><strong>—</strong><small>${escapeHTML(text("market.unavailable"))} · ${escapeHTML(marketSourceCoverageLabel(null, currentMarket.diagnostics?.funds?.fixedIncome))}</small></div></div>`;
   marketDataEl.innerHTML =
     cards + fixedCard ||
     `<div class="empty-state">${escapeHTML(text("market.empty", "داده بازار در دسترس نیست."))}</div>`;
@@ -1901,8 +1918,8 @@ function renderMarketDiagnostics(data) {
     coinMarketCap: "CoinMarketCap",
     nobitex: "Nobitex",
     binance: "Binance",
+    goldApi: "Gold API",
     metalsLive: "Metals.live",
-    tgjuMetals: "TGJU · فلزات جهانی",
     yahooMetals: "Yahoo Finance",
     tsetmc: "TSETMC",
     tgjuIndex: "TGJU · شاخص کل",
@@ -1918,7 +1935,9 @@ function renderMarketDiagnostics(data) {
           : item.status === "skipped"
             ? text("market.providerSkipped")
             : text("market.providerFailed");
-      return `<div class="diagnostic-row"><div><strong>${escapeHTML(providerNames[id] || id)}</strong><small>${escapeHTML(status)}</small></div><b>${formatIRR(item.quoteCount || 0)} ${escapeHTML(text("market.providerQuotesReturned"))}</b></div>`;
+      const failure = item.failureCode ? text(`market.providerFailure.${item.failureCode}`, "") : "";
+      const statusDetail = [status, failure].filter(Boolean).join(" · ");
+      return `<div class="diagnostic-row"><div><strong>${escapeHTML(providerNames[id] || id)}</strong><small>${escapeHTML(statusDetail)}</small></div><b>${formatIRR(item.quoteCount || 0)} ${escapeHTML(text("market.providerQuotesReturned"))}</b></div>`;
     })
     .join("");
   const coverageItems = Object.entries(data.diagnostics.assets || {});
@@ -4720,8 +4739,8 @@ function bindEvents() {
   $("#settings-model-form")?.addEventListener("submit", saveModelSettingsForm);
   $("#refresh-inflation")?.addEventListener("click", refreshInflationAssumption);
   $("#provider-key-form")?.addEventListener("submit", saveProviderApiKey);
-  $$('[data-provider-key-save]').forEach((button) => button.addEventListener("click", saveProviderApiKey));
-  $$('[data-provider-key-clear]').forEach((button) => button.addEventListener("click", clearProviderApiKey));
+  $$("[data-provider-key-save]").forEach((button) => button.addEventListener("click", saveProviderApiKey));
+  $$("[data-provider-key-clear]").forEach((button) => button.addEventListener("click", clearProviderApiKey));
   $("#sync-create")?.addEventListener("click", () => void createEncryptedSync());
   $("#sync-connect")?.addEventListener("click", () => void connectEncryptedSync());
   $("#sync-upload")?.addEventListener("click", () => void uploadLocalSyncSnapshot());

@@ -31,23 +31,20 @@ test("two-source disagreement still returns a median estimate with lower confide
 
 test("fresh FX and gold quotes produce midpoint estimates and exclude older observations", () => {
   const dollar = aggregate("dollar", [
-    { asset: "dollar", price: 234615, source: "Provider A", unit: "TOMAN", observedAt: "2026-09-25T11:18:00.000Z" },
-    { asset: "dollar", price: 232700, source: "Provider B", unit: "TOMAN", observedAt: "2026-09-25T11:26:00.000Z" },
-    { asset: "dollar", price: 234000, source: "Provider C", unit: "TOMAN", observedAt: "2026-09-24T17:30:00.000Z" },
+    { asset: "dollar", price: 234615, source: "TGJU", unit: "TOMAN", observedAt: "2026-09-25T11:18:00.000Z" },
+    { asset: "dollar", price: 232700, source: "Bonbast", unit: "TOMAN", observedAt: "2026-09-25T11:26:00.000Z" },
+    { asset: "dollar", price: 234000, source: "Navasan", unit: "TOMAN", observedAt: "2026-09-24T17:30:00.000Z" },
   ]);
   assert.equal(dollar.price, 233658);
   assert.equal(dollar.status, "degraded");
   assert.equal(dollar.sourceCount, 2);
   assert.equal(dollar.consensusDisagreement, true);
-  assert.equal(
-    dollar.sourceValues.find((source) => source.source === "Provider C").exclusionReason,
-    "older-observation",
-  );
+  assert.equal(dollar.sourceValues.find((source) => source.source === "Navasan").exclusionReason, "older-observation");
 
   const gold = aggregate("gold", [
-    { asset: "gold", price: 24124600, source: "Provider A", unit: "gram", observedAt: "2026-09-25T11:18:00.000Z" },
-    { asset: "gold", price: 23881527, source: "Provider B", unit: "gram", observedAt: "2026-09-25T11:26:00.000Z" },
-    { asset: "gold", price: 24054670, source: "Provider C", unit: "gram", observedAt: "2026-09-25T02:10:00.000Z" },
+    { asset: "gold", price: 24124600, source: "TGJU", unit: "gram", observedAt: "2026-09-25T11:18:00.000Z" },
+    { asset: "gold", price: 23881527, source: "Bonbast", unit: "gram", observedAt: "2026-09-25T11:26:00.000Z" },
+    { asset: "gold", price: 24054670, source: "Navasan", unit: "gram", observedAt: "2026-09-25T02:10:00.000Z" },
   ]);
   assert.equal(gold.price, 24003064);
   assert.equal(gold.status, "degraded");
@@ -384,7 +381,7 @@ test("silver conflict values and a last-known reading stay outside current portf
         status: "conflicted",
         retrievedAt: now,
         sourceValues: [
-          { source: "Provider A", price: 501240, observedAt: "2026-09-23T17:00:00.000Z" },
+          { source: "TGJU", price: 501240, observedAt: "2026-09-23T17:00:00.000Z" },
           { source: "Auxiliary metal source", price: 486249, observedAt: "2026-09-23T16:45:00.000Z" },
         ],
       },

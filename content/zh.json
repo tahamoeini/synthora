@@ -134,8 +134,10 @@
       }
     },
     "empty": "实时数据暂不可用。",
+    "providerDescription": "Nobitex、Binance 和公开版 CoinMarketCap 无需密钥即可提供加密货币报价。Gold API 补充全球黄金、白银、铂金和钯金报价。可选的 CoinGecko 和 CoinMarketCap 密钥会增加经过身份验证的加密货币数据来源。每个密钥仅通过对应来源请求的请求头发送。",
     "noChange": "暂无日涨跌数据",
     "sourceQuotes": "个有效报价",
+    "sourceCoverage": "已接受 / 已检查来源：{accepted}/{attempted}",
     "observedAt": "来源观测时间",
     "retrievedAt": "获取时间",
     "observationUnknown": "来源观测时间未知",
@@ -143,6 +145,14 @@
     "providerResponded": "已响应",
     "providerEmpty": "已响应，但没有可读取的报价",
     "providerFailed": "失败",
+    "providerFailure": {
+      "timeout": "请求超时",
+      "rate_limited": "已达到请求频率限制",
+      "access_denied": "来源拒绝访问",
+      "upstream_unavailable": "来源暂时不可用",
+      "invalid_response": "来源返回的数据无法读取",
+      "request_failed": "无法读取来源数据"
+    },
     "providerSkipped": "本次未请求",
     "providerQuotesReturned": "返回报价数",
     "quality": {
@@ -713,7 +723,7 @@
     "ذخیره‌ی کلید CoinGecko": "保存 CoinGecko 密钥",
     "ذخیره‌ی کلید CoinMarketCap": "保存 CoinMarketCap 密钥",
     "پاک‌کردن": "清除",
-    "منابع عمومی نوبیتکس و Binance بدون کلید کار می‌کنند؛ نرخ USDT از خود نوبیتکس گرفته می‌شود و با دلار یکی فرض نمی‌شود. CoinMarketCap عمومی نیز درخواست می‌شود. با کلید اختیاری، CoinGecko و نسخه‌ی احراز هویت‌شده‌ی CoinMarketCap هم فعال می‌شوند؛ هر کلید فقط در هدر سرور همان منبع فرستاده می‌شود.": "Nobitex 和 Binance 公共来源无需密钥即可使用；USDT 汇率取自 Nobitex，不会假定其等于美元。也会请求 CoinMarketCap 公共接口。可选密钥可启用 CoinGecko 和经过身份验证的 CoinMarketCap；每个密钥仅通过服务器发送到对应来源的请求头中。",
+    "منابع عمومی نوبیتکس و Binance بدون کلید کار می‌کنند؛ نرخ USDT از خود نوبیتکس گرفته می‌شود و با دلار یکی فرض نمی‌شود. CoinMarketCap عمومی و قیمت جهانی فلزات گران‌بها از Gold API هم درخواست می‌شوند. با کلید اختیاری، CoinGecko و نسخه‌ی احراز هویت‌شده‌ی CoinMarketCap هم فعال می‌شوند؛ هر کلید فقط در هدر سرور همان منبع فرستاده می‌شود.": "Nobitex 和 Binance 公共来源无需密钥即可使用；USDT 汇率取自 Nobitex，不会假定其等于美元。也会请求 CoinMarketCap 公共接口和 Gold API 的全球贵金属价格。可选密钥可启用 CoinGecko 和经过身份验证的 CoinMarketCap；每个密钥仅通过服务器发送到对应来源的请求头中。",
     "کلیدی ثبت نشده؛ در صورت نیاز، کلید این منبع را وارد کن.": "尚未保存密钥。如需使用此来源，请输入密钥。",
     "کلید معتبر وارد کن؛ مقدار خالی یا دارای نویسه‌ی کنترلی پذیرفته نمی‌شود.": "请输入有效密钥。不接受空值或控制字符。",
     "مرورگر اجازه‌ی ذخیره نداد؛ کلید ذخیره نشد.": "浏览器不允许存储，因此未保存密钥。",
@@ -734,7 +744,6 @@
     "برای CoinGecko Demo از راهنمای رسمی دریافت کلید استفاده کن.": "请参照官方指南获取 CoinGecko Demo 密钥。",
     "راهنمای رسمی ساخت کلید CoinGecko Demo": "CoinGecko Demo 密钥创建官方指南",
     "راهنمای رسمی CoinMarketCap": "CoinMarketCap 官方指南",
-    "TGJU · فلزات جهانی": "TGJU · 全球金属",
     "راهنمای پیکربندی کلید پلتفرم در Cloudflare": "在 Cloudflare 中配置平台密钥的指南",
     "پشتیبان": "备份",
     "خروجی و ورود داده": "导出与导入数据",

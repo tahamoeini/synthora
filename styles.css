@@ -4313,6 +4313,11 @@ html[data-theme="dark"] .chart-gap {
   background: repeating-linear-gradient(135deg, var(--line) 0, var(--line) 3px, transparent 3px, transparent 7px);
 }
 
+html[data-theme="dark"] .market-page {
+  --market-row-background: var(--surface-raised);
+  --market-row-border: var(--line);
+}
+
 /* Keep compact cards readable without hiding long values outside the viewport. */
 .market-row > div:first-child,
 .allocation-name,
@@ -4379,10 +4384,16 @@ html[dir="ltr"] .chart-axis-label {
   gap: clamp(16px, 1.8vw, 24px);
 }
 .app-content:has(.market-page.is-active) {
+  flex: 1 1 auto;
   width: min(1760px, 100%);
+  max-width: 1760px;
 }
 .market-page > * {
   min-width: 0;
+}
+.market-page {
+  --market-row-background: #fff;
+  --market-row-border: #edf1f2;
 }
 .market-page .page-heading,
 .market-page .market-global-references,
@@ -4401,6 +4412,19 @@ html[dir="ltr"] .chart-axis-label {
   margin: 10px 0 18px;
   line-height: 1.8;
 }
+.market-page .market-reference-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.market-page .market-reference-card {
+  gap: 8px;
+  min-height: 100%;
+  padding: 16px;
+}
+.market-page .market-reference-card small {
+  font-size: 0.82rem;
+  line-height: 1.65;
+}
 .market-page .market-data {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -4414,8 +4438,8 @@ html[dir="ltr"] .chart-axis-label {
   gap: 18px;
   min-width: 0;
   padding: 18px;
-  border-color: #edf1f2;
-  background: white;
+  border-color: var(--market-row-border);
+  background: var(--market-row-background);
 }
 .market-page .market-row > div:first-child {
   grid-template-columns: auto minmax(0, 1fr);
@@ -4504,9 +4528,15 @@ html[dir="ltr"] .chart-axis-label {
   line-height: 1.8;
 }
 
-@media (max-width: 1280px) {
+@media (max-width: 1440px) {
   .market-page .market-data {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (min-width: 1500px) {
+  .market-page .market-reference-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
@@ -4527,10 +4557,13 @@ html[dir="ltr"] .chart-axis-label {
     gap: 10px;
     padding: 13px;
   }
+  .market-page .market-reference-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .market-page .market-value {
     justify-items: start;
     padding-block-start: 9px;
-    border-block-start: 1px solid #edf1f2;
+    border-block-start: 1px solid var(--market-row-border);
     text-align: start;
   }
   .market-page .diagnostics-grid {

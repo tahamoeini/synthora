@@ -53,11 +53,11 @@ Current server-side limits are:
 
 The browser also reuses market responses for 90 seconds and history responses for one hour. Clearing cookies creates a new browser session, so per-session quotas are not an identity system; the shared monthly provider ceiling protects the platform key from aggregate overuse.
 
-## 4. User-owned CoinGecko key
+## 4. User-owned crypto provider keys
 
-Users can add a [CoinGecko Demo key](https://support.coingecko.com/hc/en-us/articles/21880397454233-User-Guide-How-to-sign-up-for-CoinGecko-Demo-API-and-generate-an-API-key) under **Settings → Market sources**. The app sends it to the Pages Function in the `X-CoinGecko-API-Key` header; the function forwards it to CoinGecko in its required header and never places it in the URL or API response. User keys are not written to D1 or included in exported portfolio data.
+Users can add a [CoinGecko Demo key](https://support.coingecko.com/hc/en-us/articles/21880397454233-User-Guide-How-to-sign-up-for-CoinGecko-Demo-API-and-generate-an-API-key) and a CoinMarketCap key under **Settings → Market sources**. The browser sends keys to the Pages Function in `X-CoinGecko-API-Key` and `X-CoinMarketCap-API-Key` headers. The function forwards each key only to its matching provider, never places either in a request URL or API response, and does not write user keys to D1 or exported portfolio data. Without a user or server key, the public CoinMarketCap endpoint is still requested; authenticated user keys add provider requests.
 
-The user chooses whether the provider key stays only in the open page, in session storage until the browser session ends, or in local storage on that device. The default is session storage. A key saved on the device is readable by JavaScript running on that same origin, so users should only choose that option on a device and browser profile they control. Provider keys are excluded from encrypted sync snapshots. With no D1, that user-owned key can be used directly for that request; a configured platform key is never used without durable provider-budget storage.
+The user chooses whether provider keys stay only in the open page, in session storage until the browser session ends, or in local storage on that device. The default is session storage. A key saved on the device is readable by JavaScript running on that same origin, so users should only choose that option on a device and browser profile they control. Provider keys are excluded from encrypted sync snapshots. With no D1, user-owned keys can be used directly for their requests; configured platform keys are never used without durable provider-budget storage.
 
 ## Optional encrypted personal-data sync
 
@@ -99,7 +99,7 @@ A `503` response with `api-security-not-configured` means the D1 binding or sign
 ## Operational security
 
 - Keep Pages deployments on HTTPS and rotate a secret immediately if it is exposed.
-- Never log request headers containing `X-CoinGecko-API-Key`; the Pages Function code intentionally omits the key from diagnostics and responses.
+- Never log request headers containing `X-CoinGecko-API-Key` or `X-CoinMarketCap-API-Key`; the Pages Function code intentionally omits user keys from diagnostics and responses.
 - The application enforces same-origin requests, a signed session cookie, route counters in D1, and an atomic monthly counter before spending the platform provider key.
 - These controls reduce accidental refresh consumption and key exposure. They do not replace Cloudflare account MFA, least-privilege access, secret rotation, or provider-side usage alerts.
 
