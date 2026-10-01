@@ -20,6 +20,7 @@ const DEFAULT_HISTORY_ASSETS = ["dollar", "gold", "silver"];
 const TGJU_BASE = "https://www.tgju.org/profile/";
 const YAHOO_BASE = "https://query1.finance.yahoo.com/v8/finance/chart/";
 const COINGECKO_BASE = "https://api.coingecko.com/api/v3/coins/";
+const NOBITEX_HISTORY_BASE = "https://api.nobitex.ir/market/udf/history";
 const CHART_GOLD_URL = "https://www.chartgoldprice.com/api/data?history=both";
 const TROY_OUNCE_TO_GRAMS = 31.1034768;
 const COPPER_POUND_TO_GRAMS = 453.59237;
@@ -36,10 +37,13 @@ const YAHOO_SERIES = Object.freeze({
   copper: { symbol: "HG=F", divisor: COPPER_POUND_TO_GRAMS },
 });
 const COINGECKO_IDS = Object.freeze({ bitcoin: "bitcoin", ethereum: "ethereum", tether: "tether" });
+const NOBITEX_HISTORY_SYMBOLS = Object.freeze({ bitcoin: "BTCIRT", ethereum: "ETHIRT", tether: "USDTIRT" });
+const MAX_NOBITEX_HISTORY_PAGES = 10;
 const SOURCE_URLS = Object.freeze({
   TGJU: "https://www.tgju.org/",
   "Yahoo Finance": "https://finance.yahoo.com/",
   CoinGecko: "https://www.coingecko.com/",
+  Nobitex: "https://apidocs.nobitex.ir/market_data/%D8%AF%D8%B1%DB%8C%D8%A7%D9%81%D8%AA-%D8%AF%D8%A7%D8%AF%D9%87-%D9%87%D8%A7%DB%8C-ohlc",
   ChartGoldPrice: "https://www.chartgoldprice.com/gold-price-api",
 });
 
@@ -210,6 +214,54 @@ async function fetchCryptoSeries(assetId, apiKey, userSuppliedKey, env) {
   return { points, source: "CoinGecko", sourceUrl, currency: "USD" };
 }
 
+async function fetchNobitexCryptoSeries(assetId, range, start, end) {
+  const symbol = NOBITEX_HISTORY_SYMBOLS[assetId];
+  if (!symbol) throw new Error("unsupported-nobitex-series");
+  const now = Date.now();
+  const rangeDays = HISTORY_RANGE_DAYS[range];
+  const today = Math.floor(now / (24 * 60 * 60 * 1000)) * (24 * 60 * 60);
+  const from = start
+    ? Math.floor(new Date(`${start}T00:00:00.000Z`).getTime() / 1000)
+    : rangeDays === null
+      ? 0
+      : today - rangeDays * 24 * 60 * 60;
+  const to = end
+    ? Math.floor(new Date(`${end}T23:59:59.999Z`).getTime() / 1000)
+    : today + 24 * 60 * 60 - 1;
+  const pageLimit = Math.min(
+    MAX_NOBITEX_HISTORY_PAGES,
+    Math.max(1, Math.ceil((to - from) / (500 * 24 * 60 * 60))),
+  );
+  const pages = await Promise.all(
+    Array.from({ length: pageLimit }, (_, index) => index + 1).map(async (page) => {
+      const url = new URL(NOBITEX_HISTORY_BASE);
+      url.searchParams.set("symbol", symbol);
+      url.searchParams.set("resolution", "D");
+      url.searchParams.set("from", String(from));
+      url.searchParams.set("to", String(to));
+      url.searchParams.set("page", String(page));
+      const data = await fetchJson(url, {
+        cf: { cacheTtl: 300, cacheEverything: true },
+      });
+      if (data?.s === "no_data") return [];
+      if (data?.s !== "ok" || !Array.isArray(data.t) || !Array.isArray(data.c))
+        throw new Error("provider-history-empty");
+      return data.t.flatMap((timestamp, index) => {
+        const close = Number(data.c[index]);
+        return Number.isFinite(Number(timestamp)) && Number.isFinite(close) && close > 0
+          ? [{ date: Number(timestamp) * 1000, value: close / 10, source: "Nobitex", currency: "TOMAN" }]
+          : [];
+      });
+    }),
+  );
+  const points = normalizeObservedHistory(pages.flat(), "Nobitex").map((point) => ({
+    ...point,
+    currency: "TOMAN",
+  }));
+  if (!points.length) throw new Error("provider-history-empty");
+  return { points, source: "Nobitex", sourceUrl: SOURCE_URLS.Nobitex, currency: "TOMAN" };
+}
+
 function errorReason(error) {
   if (error?.message === "coingecko-demo-key-missing") return "coingecko-demo-key-missing";
   if (error?.message === "platform-key-security-not-configured") return "platform-key-security-not-configured";
@@ -217,6 +269,7 @@ function errorReason(error) {
   if (error?.message === "provider-rate-limited") return "provider-rate-limited";
   if (error?.message === "yahoo-license-not-confirmed") return "yahoo-license-not-confirmed";
   if (error?.message === "provider-history-empty") return "provider-history-empty";
+  if (error?.message === "nobitex-history-unavailable") return "nobitex-history-unavailable";
   return "provider-unavailable";
 }
 
@@ -233,7 +286,7 @@ function rangeCoverage(points, source, range, reason = null, extra = {}) {
   };
 }
 
-async function loadRawSeries(assetId, apiKey, userSuppliedKey, env) {
+async function loadRawSeries(assetId, apiKey, userSuppliedKey, env, request = {}) {
   if (TGJU_PAGES[assetId]) {
     try {
       return await fetchTgjuSeries(assetId);
@@ -246,6 +299,18 @@ async function loadRawSeries(assetId, apiKey, userSuppliedKey, env) {
   if (YAHOO_SERIES[assetId]) {
     if (env?.YAHOO_METALS_LICENSE_CONFIRMED !== "true") throw new Error("yahoo-license-not-confirmed");
     return fetchYahooSeries(assetId);
+  }
+  if (NOBITEX_HISTORY_SYMBOLS[assetId]) {
+    try {
+      return await fetchNobitexCryptoSeries(assetId, request.range || "all", request.start, request.end);
+    } catch (nobitexError) {
+      if (!apiKey) throw new Error("nobitex-history-unavailable");
+      try {
+        return await fetchCryptoSeries(assetId, apiKey, userSuppliedKey, env);
+      } catch {
+        throw nobitexError;
+      }
+    }
   }
   if (COINGECKO_IDS[assetId]) return fetchCryptoSeries(assetId, apiKey, userSuppliedKey, env);
   throw new Error("history-unavailable");
@@ -273,7 +338,7 @@ export async function onRequestGet(context = {}) {
   const settled = await Promise.allSettled(
     rawAssets.map(async (assetId) => [
       assetId,
-      await loadRawSeries(assetId, providerKey.key, providerKey.userSupplied, context.env),
+      await loadRawSeries(assetId, providerKey.key, providerKey.userSupplied, context.env, { range, start, end }),
     ]),
   );
   const rawSeries = {};

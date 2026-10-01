@@ -3414,6 +3414,7 @@ function historyCoverageMessage(assetId) {
   if (coverage.status === "available") return formatIRR(coverage.observationCount) + " مشاهده";
   const reasons = {
     "coingecko-demo-key-missing": "کلید Demo رمزارز تنظیم نشده",
+    "nobitex-history-unavailable": "منبع عمومی تاریخچه رمزارز پاسخ نداد",
     "dated-fx-unavailable": "نرخ دلار تاریخ‌دار موجود نیست",
     "no-matching-dated-fx": "نرخ دلار هم‌تاریخ پیدا نشد",
     "no-observed-history-source": "منبع تاریخچه ندارد",
@@ -3452,6 +3453,8 @@ function renderHistoryAssetOptions() {
 }
 
 function historyReasonLabel(reason) {
+  if (reason === "nobitex-history-unavailable")
+    return "منبع عمومی تاریخچه رمزارز پاسخ نداد؛ با اتصال دوباره تلاش کن.";
   if (reason === "coingecko-demo-key-missing")
     return "برای نمایش تاریخچه رمزارز، کلید اختیاری CoinGecko Demo را در تنظیمات سرور قرار بده.";
   if (reason === "dated-fx-unavailable" || reason === "no-matching-dated-fx")

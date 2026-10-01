@@ -43,7 +43,7 @@ test("history endpoint returns source-labelled Toman observations using dated FX
   const cryptoRows = dates.map((date, index) => [date, 100 + index * 10]);
   const response = await withFetch(
     async (input, options = {}) => {
-      const url = new URL(typeof input === "string" ? input : input.url);
+      const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
       if (url.hostname === "www.tgju.org") return new Response(tgjuPage(dollarRows), { status: 200 });
       if (url.hostname === "api.coingecko.com") {
         assert.equal(options.headers["x-cg-demo-api-key"], "demo-key");
@@ -65,6 +65,38 @@ test("history endpoint returns source-labelled Toman observations using dated FX
   assert.equal(data.assets.bitcoin.points[0].value, 23000000);
   assert.equal(data.assets.bitcoin.points[0].conversion.dollarSource, "TGJU");
   assert.equal(data.assets.dollar.points[0].value, 230000);
+});
+
+test("public Nobitex crypto history converts Rial closes to Toman without dated FX", async () => {
+  const now = Math.floor(Date.now() / 1000);
+  const nobitexRequests = [];
+  const response = await withFetch(
+    async (input) => {
+      const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
+      if (url.hostname === "www.tgju.org")
+        return new Response(tgjuPage([[now * 1000 - 86400000, 2300000], [now * 1000, 2320000]]), { status: 200 });
+      if (url.hostname === "api.nobitex.ir") {
+        nobitexRequests.push(url);
+        return new Response(JSON.stringify({ s: "ok", t: [now - 86400, now], c: [23000000, 24000000] }), {
+          status: 200,
+        });
+      }
+      throw new Error("unexpected-provider " + url.href);
+    },
+    async () => historyRequest("https://app.test/api/history?assets=bitcoin&range=1y"),
+  );
+  const data = await response.json();
+  const bitcoin = data.assets.bitcoin;
+  assert.equal(response.status, 200);
+  assert.equal(nobitexRequests.length, 1);
+  assert.equal(nobitexRequests[0].searchParams.get("symbol"), "BTCIRT");
+  assert.equal(nobitexRequests[0].searchParams.get("resolution"), "D");
+  assert.equal(bitcoin.coverage.status, "available");
+  assert.equal(bitcoin.coverage.source, "Nobitex");
+  assert.equal(bitcoin.points[0].value, 2_300_000);
+  assert.equal(bitcoin.points[0].currency, "TOMAN");
+  assert.equal(bitcoin.points[0].source, "Nobitex");
+  assert.equal(bitcoin.points[0].conversion, null);
 });
 
 test("copper history converts USD per pound to Toman per gram with same-date FX once", async () => {
@@ -109,13 +141,14 @@ test("copper history converts USD per pound to Toman per gram with same-date FX 
   assert.equal(copper.points[0].conversion.dollarObservedAt.slice(0, 10), "2025-01-02");
 });
 
-test("crypto history stays unavailable without the optional Demo key", async () => {
+test("crypto history stays unavailable when the public source fails and no optional key is configured", async () => {
   const requestedUrls = [];
   const response = await withFetch(
     async (input) => {
       const url = new URL(typeof input === "string" ? input : input.url);
       requestedUrls.push(url.href);
       if (url.hostname === "www.tgju.org") return new Response(tgjuPage([[Date.now(), 2300000]]), { status: 200 });
+      if (url.hostname === "api.nobitex.ir") return new Response("unavailable", { status: 503 });
       throw new Error("unexpected-provider " + url.href);
     },
     async () => historyRequest("https://app.test/api/history?assets=bitcoin&range=1y"),
@@ -123,7 +156,7 @@ test("crypto history stays unavailable without the optional Demo key", async () 
   const data = await response.json();
   assert.equal(response.status, 200);
   assert.equal(data.assets.bitcoin.coverage.status, "unavailable");
-  assert.equal(data.assets.bitcoin.coverage.reason, "coingecko-demo-key-missing");
+  assert.equal(data.assets.bitcoin.coverage.reason, "nobitex-history-unavailable");
   assert.equal(
     requestedUrls.some((url) => url.includes("api.coingecko.com")),
     false,

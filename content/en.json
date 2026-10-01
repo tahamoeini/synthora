@@ -999,6 +999,8 @@
     "منبع تاریخچه ندارد": "The source has no history",
     "منبع تاریخچه‌ای برنگرداند": "The source returned no history",
     "منبع پاسخ نداد": "The source did not respond",
+    "منبع عمومی تاریخچه رمزارز پاسخ نداد": "The public crypto history source did not respond",
+    "منبع عمومی تاریخچه رمزارز پاسخ نداد؛ با اتصال دوباره تلاش کن.": "The public crypto history source did not respond. Check the connection and try again.",
     "تاریخچه در دسترس نیست": "History is unavailable",
     "مشاهده کافی نیست": "Not enough observations",
     "انتخاب": "selected",

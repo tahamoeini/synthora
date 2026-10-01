@@ -200,7 +200,7 @@ test("public history does not spend a platform CoinGecko key without D1", async 
   const data = await response.json();
   assert.equal(response.status, 200);
   assert.equal(data.assets.bitcoin.coverage.status, "unavailable");
-  assert.equal(data.assets.bitcoin.coverage.reason, "coingecko-demo-key-missing");
+  assert.equal(data.assets.bitcoin.coverage.reason, "nobitex-history-unavailable");
 });
 
 test("platform keys stay disabled without the session secret while keyless CoinMarketCap remains available", async () => {
@@ -253,7 +253,7 @@ test("platform keys stay disabled without the session secret while keyless CoinM
   assert.equal(responses.market.status, 200);
   assert.equal(responses.history.status, 200);
   assert.ok(market.diagnostics);
-  assert.equal(history.assets.bitcoin.coverage.reason, "coingecko-demo-key-missing");
+  assert.equal(history.assets.bitcoin.coverage.reason, "nobitex-history-unavailable");
   assert.deepEqual(platformRequests, []);
   assert.deepEqual(keylessCoinMarketCapRequests, [{ path: "/public-api/v2/simple/price", key: undefined }]);
   assert.equal(market.diagnostics.providers.coinMarketCap.status, "fulfilled");
