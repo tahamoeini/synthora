@@ -134,7 +134,7 @@
       }
     },
     "empty": "实时数据暂不可用。",
-    "providerDescription": "Nobitex、Binance 和公开版 CoinMarketCap 无需密钥即可提供加密货币报价。Gold API 补充全球黄金、白银、铂金和钯金报价。可选的 CoinGecko 和 CoinMarketCap 密钥会增加经过身份验证的加密货币数据来源。每个密钥仅通过对应来源请求的请求头发送。",
+    "providerDescription": "Nobitex、Binance、Coinbase、Kraken 和公开版 CoinMarketCap 无需密钥即可提供加密货币报价。Gold API 补充全球黄金、白银、铂金和钯金报价。可选的 CoinGecko、CoinMarketCap 和 Gold API 密钥可增加加密货币来源和历史数据。每个密钥仅通过对应来源请求的请求头发送。",
     "noChange": "暂无日涨跌数据",
     "sourceQuotes": "个有效报价",
     "sourceCoverage": "已接受 / 已检查来源：{accepted}/{attempted}",
@@ -954,6 +954,9 @@
     "· پوشش ماهانه": "· 月度覆盖",
     "طبقه‌بندی": "分类",
     "منبع بازده:": "收益来源：",
+    "منبع فعال": "当前来源",
+    "گزینه‌های دیگر": "其他来源",
+    "میانگین ماهانه": "月均值",
     "· همبستگی پیش‌فرض": "· 假设相关性",
     "میانه": "中位数",
     "در مسیرهای شبیه‌سازی‌شده:": "在模拟路径中：",

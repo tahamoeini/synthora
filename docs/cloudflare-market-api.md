@@ -6,7 +6,7 @@ The static browser app remains usable for planning, scenarios, manual portfolio 
 
 1. In Cloudflare, open **Workers & Pages**, select the Pages project, then open **Settings → Functions → D1 database bindings**.
 2. Create a D1 database for this project, then add a binding with the exact variable name `API_USAGE_DB`.
-3. If you want durable API security and platform provider keys, apply active `API_USAGE_DB` migrations 0001, 0002, and 0004 in numeric order, after checking which migrations are already present. Migration 0001 creates session and route-quota tables, 0002 adds provider cooldown state and the shared provider-response cache, and 0004 adds the session-bootstrap limit. Do not run the migration directory as a batch. Public no-platform-key routes work without this database in the bounded fallback mode above.
+3. If you want durable API security and platform provider keys, apply active `API_USAGE_DB` migrations 0001, 0002, 0004, and 0005 in numeric order, after checking which migrations are already present. Migration 0001 creates session and route-quota tables, 0002 adds provider cooldown state and the shared provider-response cache, 0004 adds the session-bootstrap limit, and 0005 adds hourly provider usage for Gold API history. Do not run the migration directory as a batch. Public no-platform-key routes work without this database in the bounded fallback mode above.
 
 Migration 0003 (`0003_private_sync.sql`) creates the optional sync table. It targets a dedicated `USER_DATA_DB` only; never apply it to `API_USAGE_DB`. Before enabling sync, inspect the separate production or preview user-data database and verify its schema. Apply migration 0003 there only if the table is absent and its current data/schema have been checked. Do not alter the migration or overwrite existing data.
 
@@ -23,6 +23,7 @@ In the Pages project, open **Settings → Variables and Secrets** and add these 
 | `API_SESSION_SIGNING_SECRET` | For D1 security and sync | HMAC signing key for the HttpOnly session cookie. Use a password manager or secure random generator to create at least 32 random characters. Public-source fallback does not use a session cookie. |
 | `COINGECKO_DEMO_API_KEY`     | Optional                 | Platform CoinGecko Demo key. A valid user key takes precedence when the request includes one.                                                                                                      |
 | `COINMARKETCAP_API_KEY`      | Optional                 | Platform CoinMarketCap key used for an additional crypto quote source.                                                                                                                             |
+| `GOLD_API_KEY`               | Optional                 | Server-side Gold API key for daily metal/BTC/ETH history. Free history access is currently limited to 10 history/OHLC requests per hour; Synthora enforces an application-wide hourly ceiling of nine using migration 0005. |
 
 Do not place these values in `app.js`, HTML, source control, build variables exposed to the browser, a URL, or a support screenshot. Pages Functions read the secrets from the server-side environment. Redeploy after adding or rotating a secret.
 
@@ -42,7 +43,7 @@ The signed cookie is `HttpOnly`, `SameSite=Lax`, scoped to `/api`, and marked `S
 Current server-side limits are:
 
 - `/api/market`: 120 requests per hour per signed session.
-- `/api/history`: 24 requests per hour per signed session.
+- `/api/history`: 24 requests per hour per signed session. Gold API history also has a shared nine-request-per-hour ceiling.
 - `/api/inflation`: 6 requests per day per signed session.
 - `/api/fx`: 60 requests per hour per signed session.
 - `/api/sync`: 40 requests per hour per signed session, in addition to requiring a valid sync recovery token and `USER_DATA_DB` binding.
@@ -51,7 +52,7 @@ Current server-side limits are:
 - Platform CoinMarketCap key: 15,000 requests per month maximum, enforced by this application.
 - Platform CoinGecko key: 8,000 requests per month by default, capped at 9,500 by the application.
 
-The browser also reuses market responses for 90 seconds and history responses for one hour. Clearing cookies creates a new browser session, so per-session quotas are not an identity system; the shared monthly provider ceiling protects the platform key from aggregate overuse.
+The browser also reuses market responses for 90 seconds and history responses for one hour. Clearing cookies creates a new browser session, so per-session quotas are not an identity system; shared monthly and hourly provider ceilings protect platform keys from aggregate overuse. Gold API history is capped at nine requests per aligned hour and spaced by at least 401 seconds to remain within its published 10-request rolling-hour free allowance.
 
 ## 4. User-owned crypto provider keys
 
@@ -79,7 +80,7 @@ Without `USER_DATA_DB`, sync reports that storage is unavailable, while local us
 This repository does not commit account-specific Wrangler configuration. For a no-D1 preview, start Wrangler without a database binding; public market/reference GET routes use the same-origin fallback. For durable quotas and platform keys, use the configured preview steps below:
 
 1. Create a local `.dev.vars` file containing an `API_SESSION_SIGNING_SECRET` with at least 32 random characters. Use a local-only value; never copy the production secret. Keep `.dev.vars` out of source control.
-2. Bind a local D1 database as `API_USAGE_DB`, inspect its existing schema, then apply `0001_api_quotas.sql`, `0002_provider_coordination.sql`, and `0004_api_session_bootstrap_limit.sql` individually in numeric order if needed. Use `npx wrangler d1 execute API_USAGE_DB --local --file=functions/api/migrations/<migration-file>` for each active migration. Do not use the directory-wide migration command while migration 0003 remains in the directory.
+2. Bind a local D1 database as `API_USAGE_DB`, inspect its existing schema, then apply `0001_api_quotas.sql`, `0002_provider_coordination.sql`, `0004_api_session_bootstrap_limit.sql`, and `0005_provider_hourly_usage.sql` individually in numeric order if needed. Use `npx wrangler d1 execute API_USAGE_DB --local --file=functions/api/migrations/<migration-file>` for each active migration. Do not use the directory-wide migration command while migration 0003 remains in the directory.
 3. Start the Pages preview with `npx wrangler pages dev . --compatibility-date=2026-09-18 --d1 API_USAGE_DB=<local-database-id>`. Use the same local database ID mapped in the Wrangler config; Wrangler uses local persistence by default. Do not add `--remote` or use a local preview command to apply migrations to production.
 
 With Pages Functions deployed but `API_USAGE_DB` or the signing secret absent, same-origin public GET routes remain available through the bounded fallback; signed sessions, durable quotas, shared D1 cache, platform-paid keys, and sync are unavailable. The static interface and local workflows remain usable even if the Pages Functions themselves are unavailable. Sync additionally requires the separate `USER_DATA_DB` and migration 0003. See Cloudflare's [Pages binding guide](https://developers.cloudflare.com/pages/functions/bindings/), [local secrets guide](https://developers.cloudflare.com/workers/local-development/environment-variables/), and [D1 Wrangler commands](https://developers.cloudflare.com/d1/wrangler-commands/) for current CLI details.
@@ -103,4 +104,4 @@ A `503` response with `api-security-not-configured` means the D1 binding or sign
 - The application enforces same-origin requests, a signed session cookie, route counters in D1, and an atomic monthly counter before spending the platform provider key.
 - These controls reduce accidental refresh consumption and key exposure. They do not replace Cloudflare account MFA, least-privilege access, secret rotation, or provider-side usage alerts.
 
-References: [Pages Functions bindings](https://developers.cloudflare.com/pages/functions/bindings/), [D1 database API](https://developers.cloudflare.com/d1/worker-api/d1-database/), [CoinGecko API plans](https://www.coingecko.com/en/api/pricing), and [World Bank API guidance](https://datahelpdesk.worldbank.org/knowledgebase/articles/889392).
+References: [Pages Functions bindings](https://developers.cloudflare.com/pages/functions/bindings/), [D1 database API](https://developers.cloudflare.com/d1/worker-api/d1-database/), [CoinGecko API plans](https://www.coingecko.com/en/api/pricing), [Gold API pricing](https://gold-api.com/pricing), and [World Bank API guidance](https://datahelpdesk.worldbank.org/knowledgebase/articles/889392).

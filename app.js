@@ -1918,6 +1918,8 @@ function renderMarketDiagnostics(data) {
     coinMarketCap: "CoinMarketCap",
     nobitex: "Nobitex",
     binance: "Binance",
+    coinbase: "Coinbase",
+    kraken: "Kraken",
     goldApi: "Gold API",
     metalsLive: "Metals.live",
     yahooMetals: "Yahoo Finance",
@@ -3411,7 +3413,16 @@ function historyAssetDefinitions() {
 function historyCoverageMessage(assetId) {
   const coverage = historyComparisonData?.assets?.[assetId]?.coverage;
   if (!coverage) return historyComparisonLoading ? "در حال دریافت" : "برای بررسی آماده است";
-  if (coverage.status === "available") return formatIRR(coverage.observationCount) + " مشاهده";
+  const alternatives = (coverage.candidateSources || []).filter((source) => source !== coverage.source);
+  const sourceDetails = [
+    coverage.source ? `منبع فعال: ${coverage.source}` : null,
+    alternatives.length ? `گزینه‌های دیگر: ${alternatives.join("، ")}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const frequencyDetail = coverage.frequency === "monthly" ? " · میانگین ماهانه" : "";
+  if (coverage.status === "available")
+    return `${formatIRR(coverage.observationCount)} مشاهده${frequencyDetail}${sourceDetails ? ` · ${sourceDetails}` : ""}`;
   const reasons = {
     "coingecko-demo-key-missing": "کلید Demo رمزارز تنظیم نشده",
     "nobitex-history-unavailable": "منبع عمومی تاریخچه رمزارز پاسخ نداد",
@@ -3422,10 +3433,10 @@ function historyCoverageMessage(assetId) {
     "provider-unavailable": "منبع پاسخ نداد",
     "history-unavailable": "تاریخچه در دسترس نیست",
   };
-  return (
+  const reason =
     reasons[coverage.reason] ||
     (coverage.status === "insufficient-history" ? "مشاهده کافی نیست" : "تاریخچه در دسترس نیست")
-  );
+  return `${reason}${sourceDetails ? ` · ${sourceDetails}` : ""}`;
 }
 
 function renderHistoryAssetOptions() {
