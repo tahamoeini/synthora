@@ -2752,11 +2752,12 @@ html[dir="ltr"] .app-navigation button.is-active {
 }
 .health-item small,
 .benchmark-item small {
-  overflow: hidden;
+  overflow: visible;
   color: var(--muted);
   font-size: max(12px, 0.59rem);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 .health-item > b,
 .benchmark-item > b {

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   deferPlatformProviderRequest,
   readPlatformProviderCache,
+  reservePlatformProviderHourlyRequest,
   reservePlatformProviderRequest,
   writePlatformProviderCache,
 } from "../functions/api/_security.js";
@@ -97,6 +98,32 @@ test("batched provider credits are charged by the number of requested assets", a
     assert.equal(await reservePlatformProviderRequest(env, "credit-provider", oneCredit), true);
     Date.now = () => base + 120_000;
     assert.equal(await reservePlatformProviderRequest(env, "credit-provider", budget), false);
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
+test("hourly provider request reservations stop at the configured cap", async () => {
+  const { env } = await createSecureApiContext("https://app.test/api/history");
+  assert.equal(await reservePlatformProviderHourlyRequest(env, "history-provider", 2), true);
+  assert.equal(await reservePlatformProviderHourlyRequest(env, "history-provider", 2), true);
+  assert.equal(await reservePlatformProviderHourlyRequest(env, "history-provider", 2), false);
+  assert.equal(await reservePlatformProviderHourlyRequest(env, "other-history-provider", 1), true);
+});
+
+test("hourly provider spacing remains enforced across fixed-window boundaries", async () => {
+  const { env } = await createSecureApiContext("https://app.test/api/history");
+  const originalNow = Date.now;
+  const base = originalNow();
+  try {
+    for (let requestIndex = 0; requestIndex < 9; requestIndex += 1) {
+      Date.now = () => base + requestIndex * 401_000;
+      assert.equal(await reservePlatformProviderHourlyRequest(env, "paced-history-provider", 9, 401), true);
+    }
+    Date.now = () => base + 60 * 60 * 1000;
+    assert.equal(await reservePlatformProviderHourlyRequest(env, "paced-history-provider", 9, 401), false);
+    Date.now = () => base + 60 * 60 * 1000 + 401 * 1000;
+    assert.equal(await reservePlatformProviderHourlyRequest(env, "paced-history-provider", 9, 401), true);
   } finally {
     Date.now = originalNow;
   }

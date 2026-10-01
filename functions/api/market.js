@@ -19,6 +19,8 @@ const COINGECKO_SIMPLE_URL = "https://api.coingecko.com/api/v3/simple/price";
 const COINMARKETCAP_QUOTES_URL = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest";
 const COINMARKETCAP_PUBLIC_URL = "https://pro-api.coinmarketcap.com/public-api/v2/simple/price";
 const BINANCE_TICKER_URL = "https://api.binance.com/api/v3/ticker/24hr";
+const COINBASE_TICKER_BASE = "https://api.exchange.coinbase.com/products/";
+const KRAKEN_TICKER_URL = "https://api.kraken.com/0/public/Ticker";
 const NOBITEX_STATS_URL = "https://api.nobitex.ir/market/stats";
 const GOLD_API_PRICE_BASE = "https://api.gold-api.com/price/";
 const METALS_LIVE_URL = "https://api.metals.live/v1/spot";
@@ -457,6 +459,62 @@ async function providerCryptoBinance(requested = ["bitcoin", "ethereum"]) {
     .filter(Boolean);
 }
 
+async function providerCryptoCoinbase(requested = ["bitcoin", "ethereum"]) {
+  const products = { bitcoin: "BTC-USD", ethereum: "ETH-USD" };
+  const selected = Object.entries(products).filter(([asset]) => requested.includes(asset));
+  if (!selected.length) return [];
+  const results = await Promise.allSettled(
+    selected.map(async ([asset, product]) => {
+      const url = `${COINBASE_TICKER_BASE}${product}/ticker`;
+      const data = await fetchJson(url, { cf: { cacheTtl: 30, cacheEverything: true } });
+      const price = parseNumber(data?.price);
+      if (!isPositiveNumber(price)) throw new Error("Coinbase ticker returned no price");
+      return quote(asset, price, "Coinbase", {
+        sourceUrl: url,
+        sourceTime: data?.time || null,
+        unit: "coin",
+        currency: "USD",
+        quoteType: "direct",
+      });
+    }),
+  );
+  const quotes = results.flatMap((result) => (result.status === "fulfilled" && result.value ? [result.value] : []));
+  if (!quotes.length) throw results.find((result) => result.status === "rejected")?.reason || new Error("Coinbase unavailable");
+  return quotes;
+}
+
+async function providerCryptoKraken(requested = ["bitcoin", "ethereum"]) {
+  const pairs = { bitcoin: "XBTUSD", ethereum: "ETHUSD", tether: "USDTUSD" };
+  const pairMatchers = { bitcoin: ["XBT", "BTC"], ethereum: ["ETH"], tether: ["USDT"] };
+  const selected = Object.entries(pairs).filter(([asset]) => requested.includes(asset));
+  if (!selected.length) return [];
+  const url = new URL(KRAKEN_TICKER_URL);
+  url.searchParams.set("pair", selected.map(([, pair]) => pair).join(","));
+  url.searchParams.set("assetVersion", "1");
+  const data = await fetchJson(url, { cf: { cacheTtl: 30, cacheEverything: true } });
+  if (Array.isArray(data?.error) && data.error.length) throw new Error("Kraken ticker returned an error");
+  const rows = data?.result || {};
+  return selected.flatMap(([asset, pair]) => {
+    const [key, item] = Object.entries(rows).find(([name]) => {
+      const normalized = name.toUpperCase().replace(/[^A-Z]/g, "");
+      return pairMatchers[asset].some((symbol) => normalized.includes(symbol));
+    }) || [];
+    const price = parseNumber(item?.c?.[0]);
+    const open = parseNumber(item?.o);
+    if (!key || !isPositiveNumber(price)) return [];
+    return [
+      quote(asset, price, "Kraken", {
+        changePct: isPositiveNumber(open) ? ((price / open) - 1) * 100 : null,
+        sourceUrl: url.toString(),
+        sourceTime: null,
+        unit: "coin",
+        currency: "USD",
+        quoteType: "direct",
+      }),
+    ];
+  });
+}
+
 async function providerNobitex(requested = ["bitcoin", "ethereum", "tether"]) {
   const mapping = { bitcoin: "btc", ethereum: "eth", tether: "usdt" };
   const requestedAssets = new Set(requested);
@@ -537,10 +595,12 @@ async function providerGlobalMetals() {
 
 async function providerGoldApi(requested = []) {
   const metals = {
-    gold: { symbol: "XAU", factor: 0.75 },
-    silver: { symbol: "XAG", factor: 1 },
-    platinum: { symbol: "XPT", factor: 1 },
-    palladium: { symbol: "XPD", factor: 1 },
+    gold: { symbol: "XAU", factor: 0.75, divisor: TROY_OUNCE_TO_GRAMS, unit: "gram" },
+    silver: { symbol: "XAG", factor: 1, divisor: TROY_OUNCE_TO_GRAMS, unit: "gram" },
+    platinum: { symbol: "XPT", factor: 1, divisor: TROY_OUNCE_TO_GRAMS, unit: "gram" },
+    palladium: { symbol: "XPD", factor: 1, divisor: TROY_OUNCE_TO_GRAMS, unit: "gram" },
+    bitcoin: { symbol: "BTC", factor: 1, divisor: 1, unit: "coin" },
+    ethereum: { symbol: "ETH", factor: 1, divisor: 1, unit: "coin" },
   };
   const selected = Object.entries(metals).filter(([asset]) => requested.includes(asset));
   if (!selected.length) return [];
@@ -551,10 +611,10 @@ async function providerGoldApi(requested = []) {
       const priceUsdPerTroyOunce = parseNumber(data?.price);
       if (data?.symbol !== metal.symbol || data?.currency !== "USD" || !isPositiveNumber(priceUsdPerTroyOunce))
         throw new Error("Gold API returned an unexpected quote unit");
-      return quote(asset, (priceUsdPerTroyOunce * metal.factor) / TROY_OUNCE_TO_GRAMS, "Gold API", {
+      return quote(asset, (priceUsdPerTroyOunce * metal.factor) / metal.divisor, "Gold API", {
         sourceUrl: url,
         sourceTime: data.updatedAt || data.timestamp || null,
-        unit: "gram",
+        unit: metal.unit,
         currency: "USD",
         quoteType: "direct",
       });
@@ -1113,6 +1173,20 @@ export async function onRequestGet(context = {}) {
       localOnly: true,
     },
     {
+      id: "coinbase",
+      run: () => providerCryptoCoinbase([...selected]),
+      assetIds: [...selected].filter((asset) => ["bitcoin", "ethereum"].includes(asset)),
+      enabled: wantsAny("bitcoin", "ethereum"),
+      localOnly: true,
+    },
+    {
+      id: "kraken",
+      run: () => providerCryptoKraken([...selected]),
+      assetIds: [...selected].filter((asset) => ["bitcoin", "ethereum", "tether"].includes(asset)),
+      enabled: wantsAny("bitcoin", "ethereum", "tether"),
+      localOnly: true,
+    },
+    {
       id: "metalsLive",
       run: providerGlobalMetals,
       assetIds: [...selected].filter((asset) => ["silver", "platinum", "palladium", "copper"].includes(asset)),
@@ -1122,8 +1196,8 @@ export async function onRequestGet(context = {}) {
     {
       id: "goldApi",
       run: () => providerGoldApi([...selected]),
-      assetIds: [...selected].filter((asset) => ["gold", "silver", "platinum", "palladium"].includes(asset)),
-      enabled: wantsAny("gold", "silver", "platinum", "palladium"),
+      assetIds: [...selected].filter((asset) => ["gold", "silver", "platinum", "palladium", "bitcoin", "ethereum"].includes(asset)),
+      enabled: wantsAny("gold", "silver", "platinum", "palladium", "bitcoin", "ethereum"),
       localOnly: true,
     },
     {
@@ -1196,12 +1270,19 @@ export async function onRequestGet(context = {}) {
   }
 
   const preliminaryDollar = aggregate("dollar", primaryQuotes);
-  const rawGlobalQuotes = ["coinGecko", "coinMarketCap", "binance", "metalsLive", "goldApi", "yahooMetals"].flatMap(
-    (id) => {
+  const rawGlobalQuotes = [
+    "coinGecko",
+    "coinMarketCap",
+    "binance",
+    "coinbase",
+    "kraken",
+    "metalsLive",
+    "goldApi",
+    "yahooMetals",
+  ].flatMap((id) => {
       const result = providerResults.get(id);
       return result?.status === "fulfilled" ? result.value.quotes : [];
-    },
-  );
+    });
   const directLocalQuotes = ["nobitex"].flatMap((id) => {
     const result = providerResults.get(id);
     return result?.status === "fulfilled" ? result.value.quotes : [];
@@ -1405,6 +1486,8 @@ export async function onRequestGet(context = {}) {
         { id: "coinMarketCap", name: "CoinMarketCap", url: COINMARKETCAP_PUBLIC_URL },
         { id: "nobitex", name: "Nobitex public market stats", url: NOBITEX_STATS_URL },
         { id: "binance", name: "Binance public ticker", url: BINANCE_TICKER_URL },
+        { id: "coinbase", name: "Coinbase public ticker", url: "https://api.exchange.coinbase.com/products/" },
+        { id: "kraken", name: "Kraken public ticker", url: KRAKEN_TICKER_URL },
         { id: "goldApi", name: "Gold API", url: GOLD_API_PRICE_BASE },
         { id: "metalsLive", name: "Metals.live", url: METALS_LIVE_URL },
         { id: "yahooMetals", name: "Yahoo Finance futures chart", url: YAHOO_METAL_CHART_BASE },

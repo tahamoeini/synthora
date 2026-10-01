@@ -6,6 +6,8 @@ function createUsageDatabase() {
   const sessions = new Map();
   const routeUsage = new Map();
   const providerUsage = new Map();
+  const providerHourlyUsage = new Map();
+  const providerLastRequested = new Map();
   const providerCache = new Map();
   const issuance = new Map();
 
@@ -41,6 +43,17 @@ function createUsageDatabase() {
           throw new Error(`Unexpected test database statement: ${statement}`);
         },
         async first() {
+          if (statement.includes("INSERT INTO provider_hourly_usage")) {
+            const [provider, hour, limit, requestedAt, minimumInterval = 0] = values;
+            const previousRequestedAt = providerLastRequested.get(provider);
+            if (previousRequestedAt !== undefined && previousRequestedAt > requestedAt - minimumInterval) return null;
+            const key = `${provider}:${hour}`;
+            const count = (providerHourlyUsage.get(key) || 0) + 1;
+            if (count > limit) return null;
+            providerHourlyUsage.set(key, count);
+            providerLastRequested.set(provider, requestedAt);
+            return { request_count: count };
+          }
           if (statement.includes("INSERT INTO api_session_issuance")) {
             const [clientHash, windowStart, limit] = values;
             const key = `${clientHash}:${windowStart}`;

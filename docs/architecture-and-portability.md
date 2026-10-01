@@ -46,7 +46,7 @@ Keep these three responsibilities distinct:
 2. **HTTP contract:** same-origin JSON endpoints, status codes, cookies, headers, and response shapes. Keep route behavior stable when replacing the hosting runtime.
 3. **Runtime adapters:** route registration, secret/config access, D1 reads and writes, provider fetch caching, and platform-specific request options. Keep provider and hosting details here.
 
-The most important current migration seam is persistence. functions/api/_security.js currently runs D1 SQL directly. Replacing Cloudflare requires an adapter for session lookup, atomic route quotas, monthly provider budgets, cooldowns, and the provider-response cache. A process-local Map is suitable only for coalescing overlapping requests in one process; it cannot replace shared quota state or durable storage.
+The most important current migration seam is persistence. functions/api/_security.js currently runs D1 SQL directly. Replacing Cloudflare requires an adapter for session lookup, atomic route quotas, monthly and hourly provider budgets, cooldowns, and the provider-response cache. A process-local Map is suitable only for coalescing overlapping requests in one process; it cannot replace shared quota state or durable storage.
 
 For another edge provider, map its request lifecycle and durable SQL or key-value services behind the same route and storage contracts. For a lightweight single-server deployment, serve the static files and /api/ from one small HTTP service. A local database can suit a single process; multiple application instances require shared durable storage. In either case, keep the UI and financial-domain modules unchanged where possible, and preserve the security and data-quality behavior as part of the adapter.
 
@@ -76,5 +76,5 @@ See the [documentation index](README.md) for the current owner and status of eac
 - docs/market-data-and-forecasting.md and docs/financial-model-audit.md hold market-data and calculation invariants.
 - docs/cloudflare-market-api.md describes the current Pages Functions setup.
 - docs/data-persistence-and-sync-plan.md distinguishes the implemented manual encrypted snapshot sync from future proposals. There are no user accounts, automatic/background sync, scheduled backups, or scheduled market ingestion.
-- Migration 0003 defines the optional sync table for a dedicated `USER_DATA_DB`; never apply it to `API_USAGE_DB`. The current API database uses active migrations 0001, 0002, and 0004. Before enabling sync in an environment, inspect that separate database and verify deployment state before applying migration 0003.
+- Migration 0003 defines the optional sync table for a dedicated `USER_DATA_DB`; never apply it to `API_USAGE_DB`. The current API database uses active migrations 0001, 0002, 0004, and 0005. Before enabling sync in an environment, inspect that separate database and verify deployment state before applying migration 0003.
 - Audit and QA documents are historical records of particular reviews, not current release status. Verify behavior in source and tests when they disagree with the implementation.

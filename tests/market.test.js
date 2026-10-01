@@ -201,7 +201,7 @@ test("public crypto quotes work without keys, a session database, or sync", asyn
     assert.equal(response.status, 200);
     assert.equal(data.assets.bitcoin.price, 3000000000);
     assert.equal(data.assets.bitcoin.sourceCount, 3);
-    assert.equal(data.assets.bitcoin.configuredSourceCount, 3);
+    assert.equal(data.assets.bitcoin.configuredSourceCount, 6);
     assert.deepEqual(new Set(data.assets.bitcoin.sources), new Set(["Binance", "CoinMarketCap", "Nobitex"]));
     assert.deepEqual(
       new Set(data.assets.bitcoin.derivedFrom),
@@ -213,10 +213,10 @@ test("public crypto quotes work without keys, a session database, or sync", asyn
     );
     assert.equal(data.assets.tether.price, 50000);
     assert.ok(data.assets.tether.sourceCount >= 2);
-    assert.equal(data.diagnostics.assets.bitcoin.attempted, 3);
+    assert.equal(data.diagnostics.assets.bitcoin.attempted, 6);
     assert.deepEqual(
       new Set(data.diagnostics.assets.bitcoin.attemptedProviders),
-      new Set(["coinMarketCap", "nobitex", "binance"]),
+      new Set(["coinMarketCap", "nobitex", "binance", "coinbase", "kraken", "goldApi"]),
     );
     assert.equal(data.diagnostics.providers.coinMarketCap.quoteCount, 2);
     assert.equal(data.diagnostics.providers.nobitex.quoteCount, 2);
@@ -239,6 +239,66 @@ test("public crypto quotes work without keys, a session database, or sync", asyn
       requested.some((url) => url.hostname === "api.nobitex.ir" && url.searchParams.has("srcCurrency")),
       false,
     );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("public Coinbase and Kraken quotes retain USD provenance and reconcile through observed local FX", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, options = {}) => {
+    const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
+    if (url.hostname === "www.tgju.org")
+      return new Response('<td data-col="info.last_trade.PDrCotVal">500000</td>', { status: 200 });
+    if (url.hostname === "www.bonbast.com") return new Response("token unavailable", { status: 200 });
+    if (url.hostname === "raw.githubusercontent.com")
+      return new Response(JSON.stringify({ usd: { value: "50000", date: Math.floor(Date.now() / 1000) } }), {
+        status: 200,
+      });
+    if (url.hostname === "pro-api.coinmarketcap.com")
+      return new Response(JSON.stringify({ data: [{ slug: "bitcoin", price: 60000 }] }), { status: 200 });
+    if (url.hostname === "api.nobitex.ir")
+      return new Response(
+        JSON.stringify({ status: "ok", stats: { "btc-rls": { latest: "30000000000" }, "usdt-rls": { latest: "500000" } } }),
+        { status: 200 },
+      );
+    if (url.hostname === "api.binance.com")
+      return new Response(JSON.stringify([{ symbol: "BTCUSDT", lastPrice: "60000", priceChangePercent: "0" }]), {
+        status: 200,
+      });
+    if (url.hostname === "api.exchange.coinbase.com")
+      return new Response(JSON.stringify({ price: "60000", time: new Date().toISOString() }), { status: 200 });
+    if (url.hostname === "api.kraken.com")
+      return new Response(
+        JSON.stringify({
+          error: [],
+          result: {
+            XXBTZUSD: { c: ["60000"], o: "59000" },
+            USDTZUSD: { c: ["1"], o: "1" },
+          },
+        }),
+        { status: 200 },
+      );
+    if (url.hostname === "api.gold-api.com")
+      return new Response(
+        JSON.stringify({ symbol: "BTC", currency: "USD", price: 60000, updatedAt: new Date().toISOString() }),
+        { status: 200 },
+      );
+    throw new Error(`unexpected-provider:${url.href}:${options.method || "GET"}`);
+  };
+  try {
+    const response = await marketRequest("https://app.test/api/market?assets=bitcoin,dollar,tether");
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.assets.bitcoin.price, 3_000_000_000);
+    assert.ok(data.assets.bitcoin.sources.includes("Coinbase"));
+    assert.ok(data.assets.bitcoin.sources.includes("Kraken"));
+    assert.ok(data.assets.bitcoin.sources.includes("Gold API"));
+    assert.ok(data.assets.bitcoin.derivedFrom.includes("USD/TOMAN"));
+    assert.equal(data.assets.tether.price, 50_000);
+    assert.ok(data.assets.tether.sources.includes("Kraken"));
+    assert.equal(data.diagnostics.providers.coinbase.quoteCount, 1);
+    assert.equal(data.diagnostics.providers.kraken.quoteCount, 2);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -535,8 +595,8 @@ test("USDT exchange pairs are not converted as if USDT were USD cash", async () 
     assert.equal(data.assets.bitcoin.sourceCount, 1);
     assert.deepEqual(data.assets.bitcoin.sources, ["CoinGecko"]);
     assert.equal(data.diagnostics.providers.binance.status, "fulfilled");
-    assert.equal(data.diagnostics.assets.bitcoin.attempted, 4);
-    assert.equal(data.diagnostics.assets.bitcoin.attemptedProviders.length, 4);
+    assert.equal(data.diagnostics.assets.bitcoin.attempted, 7);
+    assert.equal(data.diagnostics.assets.bitcoin.attemptedProviders.length, 7);
     assert.equal(data.diagnostics.assets.bitcoin.excludedForCurrency, 1);
   } finally {
     globalThis.fetch = originalFetch;

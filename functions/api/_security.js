@@ -291,6 +291,26 @@ export async function reservePlatformProviderRequest(
   }
 }
 
+export async function reservePlatformProviderHourlyRequest(env, provider, hourlyLimit, minimumIntervalSeconds = 0) {
+  const db = databaseFor(env);
+  const limit = Math.max(1, Math.floor(Number(hourlyLimit) || 1));
+  if (!db || !provider) return false;
+  const hourKey = Math.floor(Date.now() / 3_600_000);
+  const now = Math.floor(Date.now() / 1000);
+  const minimumInterval = Math.max(0, Math.floor(Number(minimumIntervalSeconds) || 0));
+  try {
+    const row = await db
+      .prepare(
+        "INSERT INTO provider_hourly_usage (provider, hour_key, request_count, last_requested_at) SELECT ?1, ?2, 1, ?4 WHERE NOT EXISTS (SELECT 1 FROM provider_hourly_usage WHERE provider = ?1 AND last_requested_at > (?4 - ?5)) ON CONFLICT(provider, hour_key) DO UPDATE SET request_count = request_count + 1, last_requested_at = ?4 WHERE provider_hourly_usage.request_count < ?3 AND provider_hourly_usage.last_requested_at <= (?4 - ?5) RETURNING request_count",
+      )
+      .bind(provider, hourKey, limit, now, minimumInterval)
+      .first();
+    return Boolean(row && Number(row.request_count) <= limit);
+  } catch {
+    return false;
+  }
+}
+
 export async function readPlatformProviderCache(env, provider) {
   const db = databaseFor(env);
   if (!db) return null;

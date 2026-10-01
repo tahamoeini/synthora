@@ -134,7 +134,7 @@
       }
     },
     "empty": "Live data is currently unavailable.",
-    "providerDescription": "Nobitex, Binance, and public CoinMarketCap provide crypto quotes without a key. Gold API adds global gold, silver, platinum, and palladium quotes. Optional CoinGecko and CoinMarketCap keys add authenticated crypto sources. Each key is sent only in that provider's request header.",
+    "providerDescription": "Nobitex, Binance, Coinbase, Kraken, and public CoinMarketCap provide crypto quotes without a key. Gold API adds global gold, silver, platinum, and palladium quotes. Optional CoinGecko, CoinMarketCap, and Gold API keys add crypto sources and historical data. Each key is sent only in that provider's request header.",
     "noChange": "Daily change unavailable",
     "sourceQuotes": "valid quotes",
     "sourceCoverage": "Accepted / attempted sources: {accepted}/{attempted}",
@@ -959,6 +959,9 @@
     "· پوشش ماهانه": "· monthly coverage",
     "طبقه‌بندی": "Classification",
     "منبع بازده:": "Return source:",
+    "منبع فعال": "Active source",
+    "گزینه‌های دیگر": "Other sources",
+    "میانگین ماهانه": "monthly average",
     "· همبستگی پیش‌فرض": "· assumed correlation",
     "میانه": "Median",
     "در مسیرهای شبیه‌سازی‌شده:": "In simulated paths:",
