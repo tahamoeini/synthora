@@ -4379,9 +4379,7 @@ html[dir="ltr"] .chart-axis-label {
 }
 
 .app-view.market-page.is-active {
-  display: grid;
-  align-content: start;
-  gap: clamp(16px, 1.8vw, 24px);
+  display: block;
 }
 .app-content:has(.market-page.is-active) {
   flex: 1 1 auto;
@@ -4395,11 +4393,8 @@ html[dir="ltr"] .chart-axis-label {
   --market-row-background: #fff;
   --market-row-border: #edf1f2;
 }
-.market-page .page-heading,
-.market-page .market-global-references,
-.market-page .assets-explainer,
-.market-page .diagnostics-panel {
-  margin: 0;
+.market-page > :not(:last-child) {
+  margin-block-end: clamp(24px, 2vw, 30px);
 }
 .market-page .market-panel {
   padding: clamp(18px, 2.6vw, 28px);
@@ -4523,6 +4518,13 @@ html[dir="ltr"] .chart-axis-label {
 .market-page .assets-explainer {
   padding: 24px clamp(20px, 2vw, 30px);
 }
+.market-page .market-global-references {
+  padding: clamp(18px, 2.6vw, 28px);
+}
+.market-page .reference-rates-grid {
+  gap: 12px;
+  margin-top: 16px;
+}
 .market-page .assets-explainer p {
   max-width: 80ch;
   line-height: 1.8;
@@ -4541,14 +4543,15 @@ html[dir="ltr"] .chart-axis-label {
 }
 
 @media (max-width: 560px) {
-  .app-view.market-page.is-active {
-    gap: 14px;
+  .market-page > :not(:last-child) {
+    margin-block-end: 16px;
   }
   .market-page .page-heading {
     gap: 8px;
   }
   .market-page .market-panel,
   .market-page .diagnostics-panel,
+  .market-page .market-global-references,
   .market-page .assets-explainer {
     padding: 17px;
   }
