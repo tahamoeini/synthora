@@ -74,7 +74,13 @@ test("public Nobitex crypto history converts Rial closes to Toman without dated 
     async (input) => {
       const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
       if (url.hostname === "www.tgju.org")
-        return new Response(tgjuPage([[now * 1000 - 86400000, 2300000], [now * 1000, 2320000]]), { status: 200 });
+        return new Response(
+          tgjuPage([
+            [now * 1000 - 86400000, 2300000],
+            [now * 1000, 2320000],
+          ]),
+          { status: 200 },
+        );
       if (url.hostname === "api.nobitex.ir") {
         nobitexRequests.push(url);
         return new Response(JSON.stringify({ s: "ok", t: [now - 86400, now], c: [23000000, 24000000] }), {
@@ -212,17 +218,19 @@ test("unsupported range and empty allowlist return a clear 400 response", async 
 test("copper history converts monthly FRED/IMF data with matching monthly-average dollar observations", async () => {
   const dates = ["2025-01-01", "2025-02-01"];
   const dollarDates = ["2025-01-02", "2025-01-03", "2025-02-02", "2025-02-03"];
-  const dollarRows = dollarDates.map((date, index) => [Date.parse(`${date}T00:00:00.000Z`), 2_300_000 + index * 10_000]);
+  const dollarRows = dollarDates.map((date, index) => [
+    Date.parse(`${date}T00:00:00.000Z`),
+    2_300_000 + index * 10_000,
+  ]);
   const response = await withFetch(
     async (input) => {
       const url = new URL(typeof input === "string" ? input : input.url);
       if (url.hostname === "www.tgju.org" && url.pathname.endsWith("/price_dollar_rl"))
         return new Response(tgjuPage(dollarRows), { status: 200 });
       if (url.hostname === "fred.stlouisfed.org")
-        return new Response(
-          ["observation_date,PCOPPUSDM", "2025-01-01,2000000", "2025-02-01,2100000"].join("\n"),
-          { status: 200 },
-        );
+        return new Response(["observation_date,PCOPPUSDM", "2025-01-01,2000000", "2025-02-01,2100000"].join("\n"), {
+          status: 200,
+        });
       throw new Error(`unexpected-provider:${url.hostname}`);
     },
     async () => historyRequest("https://app.test/api/history?assets=copper&range=all"),
@@ -249,7 +257,12 @@ test("TSETMC TEDPIX history is used when the TGJU index chart is unavailable", a
       if (url.hostname === "www.tgju.org") return new Response("unavailable", { status: 503 });
       if (url.hostname === "cdn.tsetmc.com")
         return new Response(
-          JSON.stringify({ indexB2: [{ dEven: 14020102, xNivIn: 2_100_000 }, { dEven: 14020103, xNivIn: 2_120_000 }] }),
+          JSON.stringify({
+            indexB2: [
+              { dEven: 14020102, xNivIn: 2_100_000 },
+              { dEven: 14020103, xNivIn: 2_120_000 },
+            ],
+          }),
           { status: 200 },
         );
       throw new Error(`unexpected-provider:${url.hostname}`);
@@ -268,10 +281,16 @@ test("TSETMC TEDPIX history is used when the TGJU index chart has too few observ
   const response = await withFetch(
     async (input) => {
       const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
-      if (url.hostname === "www.tgju.org") return new Response(tgjuPage([[Date.UTC(2023, 2, 22), 2_100_000]]), { status: 200 });
+      if (url.hostname === "www.tgju.org")
+        return new Response(tgjuPage([[Date.UTC(2023, 2, 22), 2_100_000]]), { status: 200 });
       if (url.hostname === "cdn.tsetmc.com")
         return new Response(
-          JSON.stringify({ indexB2: [{ dEven: 14020102, xNivIn: 2_100_000 }, { dEven: 14020103, xNivIn: 2_120_000 }] }),
+          JSON.stringify({
+            indexB2: [
+              { dEven: 14020102, xNivIn: 2_100_000 },
+              { dEven: 14020103, xNivIn: 2_120_000 },
+            ],
+          }),
           { status: 200 },
         );
       throw new Error(`unexpected-provider:${url.hostname}`);
@@ -289,7 +308,7 @@ test("Coinbase history is paged past the exchange's per-request candle limit", a
   const firstDay = Date.parse("2015-01-01T00:00:00.000Z");
   const lastDay = Math.floor(Date.now() / dayMs) * dayMs + dayMs - 1;
   const dollarRows = [];
-  for (let chunkStart = firstDay; chunkStart <= lastDay; ) {
+  for (let chunkStart = firstDay; chunkStart <= lastDay;) {
     dollarRows.push([chunkStart, 2_300_000]);
     dollarRows.push([chunkStart + dayMs, 2_300_000]);
     chunkStart += 290 * dayMs;
@@ -339,9 +358,12 @@ test("Binance history requires observed same-day Nobitex Tether prices for conve
       if (url.hostname === "www.tgju.org") return new Response("unavailable", { status: 503 });
       if (url.hostname === "api.nobitex.ir" && url.pathname.endsWith("/udf/history")) {
         if (url.searchParams.get("symbol") !== "USDTIRT") return new Response("unavailable", { status: 503 });
-        return new Response(JSON.stringify({ s: "ok", t: dates.map((date) => date / 1000), c: [5_000_000, 5_100_000] }), {
-          status: 200,
-        });
+        return new Response(
+          JSON.stringify({ s: "ok", t: dates.map((date) => date / 1000), c: [5_000_000, 5_100_000] }),
+          {
+            status: 200,
+          },
+        );
       }
       if (url.hostname === "api.exchange.coinbase.com") return new Response("[]", { status: 200 });
       if (url.hostname === "api.binance.com")
@@ -357,9 +379,15 @@ test("Binance history requires observed same-day Nobitex Tether prices for conve
   const bitcoin = data.assets.bitcoin;
   assert.equal(response.status, 200);
   assert.equal(bitcoin.coverage.source, "Binance");
-  assert.deepEqual(bitcoin.points.map((point) => point.value), [30_000_000_000, 31_110_000_000]);
+  assert.deepEqual(
+    bitcoin.points.map((point) => point.value),
+    [30_000_000_000, 31_110_000_000],
+  );
   assert.equal(bitcoin.points[0].conversion.formula, "ASSET/USDT × USDT/TOMAN");
-  assert.equal(bitcoin.points[0].conversion.tetherObservedAt.slice(0, 10), new Date(firstDay).toISOString().slice(0, 10));
+  assert.equal(
+    bitcoin.points[0].conversion.tetherObservedAt.slice(0, 10),
+    new Date(firstDay).toISOString().slice(0, 10),
+  );
 });
 
 test("Kraken history fills BTC/ETH gaps with dated local-dollar conversion", async () => {
@@ -399,7 +427,10 @@ test("Kraken history fills BTC/ETH gaps with dated local-dollar conversion", asy
   const bitcoin = data.assets.bitcoin;
   assert.equal(response.status, 200);
   assert.equal(bitcoin.coverage.source, "Kraken");
-  assert.deepEqual(bitcoin.points.map((point) => point.value), [13_800_000_000, 14_030_000_000]);
+  assert.deepEqual(
+    bitcoin.points.map((point) => point.value),
+    [13_800_000_000, 14_030_000_000],
+  );
   assert.equal(bitcoin.points[0].conversion.formula, "USD × USD/TOMAN");
 });
 
@@ -437,5 +468,8 @@ test("Gold API history stays server-side, rate limited, and converts metals by d
   assert.equal(gold.coverage.source, "Gold API");
   assert.ok(gold.coverage.candidateSources.includes("Gold API"));
   assert.equal(gold.points[0].value, 17_250_000);
-  assert.equal(requestUrls.some((url) => url.searchParams.has("key") || url.searchParams.has("api_key")), false);
+  assert.equal(
+    requestUrls.some((url) => url.searchParams.has("key") || url.searchParams.has("api_key")),
+    false,
+  );
 });

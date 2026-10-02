@@ -259,7 +259,10 @@ test("public Coinbase and Kraken quotes retain USD provenance and reconcile thro
       return new Response(JSON.stringify({ data: [{ slug: "bitcoin", price: 60000 }] }), { status: 200 });
     if (url.hostname === "api.nobitex.ir")
       return new Response(
-        JSON.stringify({ status: "ok", stats: { "btc-rls": { latest: "30000000000" }, "usdt-rls": { latest: "500000" } } }),
+        JSON.stringify({
+          status: "ok",
+          stats: { "btc-rls": { latest: "30000000000" }, "usdt-rls": { latest: "500000" } },
+        }),
         { status: 200 },
       );
     if (url.hostname === "api.binance.com")

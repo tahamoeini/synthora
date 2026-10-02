@@ -16,16 +16,16 @@ The Cloudflare market function reads configured public sources and returns norma
 
 ### Historical source matrix
 
-| Instrument | History sources, in fallback order | Coverage notes |
-| --- | --- | --- |
-| USD/Toman | TGJU | Other current local FX feeds do not provide an eligible, documented history path for this same free-market rate. |
-| 18k gold, silver | TGJU → ChartGoldPrice → Gold API with `GOLD_API_KEY` | USD-based fallback points require a same-date TGJU dollar observation. |
-| Bitcoin, Ethereum | Nobitex → Coinbase → Binance → Kraken → Gold API with key → CoinGecko with user/platform key | Binance requires dated USDT/Toman observations; the USD feeds require dated dollar observations. Coinbase is paged to cover up to about 12 years; Kraken exposes only the latest 720 daily candles. |
-| Tether | Nobitex → Kraken → CoinGecko with user/platform key | USD-based fallbacks use dated dollar observations; Tether is never treated as exactly one USD. |
-| Platinum, palladium | Yahoo Finance with license confirmation → Gold API with key | Yahoo access stays disabled until the operator confirms the applicable use rights. |
-| Copper | Yahoo Finance with license confirmation → FRED/IMF monthly benchmark | The monthly benchmark is an observed period average, not a daily futures close; FX conversion uses the mean of observed daily dollar values from the same month. |
-| Tehran index (TEDPIX) | TGJU → TSETMC | Index-point reference only; not a tradable holding. |
-| Fixed-income yield, cash | No historical price series | Yield is a separate fund metric; cash has no varying market price. A synthetic series is not created for either. |
+| Instrument               | History sources, in fallback order                                                           | Coverage notes                                                                                                                                                                                      |
+| ------------------------ | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| USD/Toman                | TGJU                                                                                         | Other current local FX feeds do not provide an eligible, documented history path for this same free-market rate.                                                                                    |
+| 18k gold, silver         | TGJU → ChartGoldPrice → Gold API with `GOLD_API_KEY`                                         | USD-based fallback points require a same-date TGJU dollar observation.                                                                                                                              |
+| Bitcoin, Ethereum        | Nobitex → Coinbase → Binance → Kraken → Gold API with key → CoinGecko with user/platform key | Binance requires dated USDT/Toman observations; the USD feeds require dated dollar observations. Coinbase is paged to cover up to about 12 years; Kraken exposes only the latest 720 daily candles. |
+| Tether                   | Nobitex → Kraken → CoinGecko with user/platform key                                          | USD-based fallbacks use dated dollar observations; Tether is never treated as exactly one USD.                                                                                                      |
+| Platinum, palladium      | Yahoo Finance with license confirmation → Gold API with key                                  | Yahoo access stays disabled until the operator confirms the applicable use rights.                                                                                                                  |
+| Copper                   | Yahoo Finance with license confirmation → FRED/IMF monthly benchmark                         | The monthly benchmark is an observed period average, not a daily futures close; FX conversion uses the mean of observed daily dollar values from the same month.                                    |
+| Tehran index (TEDPIX)    | TGJU → TSETMC                                                                                | Index-point reference only; not a tradable holding.                                                                                                                                                 |
+| Fixed-income yield, cash | No historical price series                                                                   | Yield is a separate fund metric; cash has no varying market price. A synthetic series is not created for either.                                                                                    |
 
 The endpoint uses the first source that returns enough usable observations; it does not blend price histories across providers. Each asset's `coverage.candidateSources` lists eligible alternatives, while `coverage.source` and point provenance identify the feed actually returned.
 

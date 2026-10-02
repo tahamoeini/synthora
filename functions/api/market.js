@@ -479,7 +479,8 @@ async function providerCryptoCoinbase(requested = ["bitcoin", "ethereum"]) {
     }),
   );
   const quotes = results.flatMap((result) => (result.status === "fulfilled" && result.value ? [result.value] : []));
-  if (!quotes.length) throw results.find((result) => result.status === "rejected")?.reason || new Error("Coinbase unavailable");
+  if (!quotes.length)
+    throw results.find((result) => result.status === "rejected")?.reason || new Error("Coinbase unavailable");
   return quotes;
 }
 
@@ -495,16 +496,17 @@ async function providerCryptoKraken(requested = ["bitcoin", "ethereum"]) {
   if (Array.isArray(data?.error) && data.error.length) throw new Error("Kraken ticker returned an error");
   const rows = data?.result || {};
   return selected.flatMap(([asset, pair]) => {
-    const [key, item] = Object.entries(rows).find(([name]) => {
-      const normalized = name.toUpperCase().replace(/[^A-Z]/g, "");
-      return pairMatchers[asset].some((symbol) => normalized.includes(symbol));
-    }) || [];
+    const [key, item] =
+      Object.entries(rows).find(([name]) => {
+        const normalized = name.toUpperCase().replace(/[^A-Z]/g, "");
+        return pairMatchers[asset].some((symbol) => normalized.includes(symbol));
+      }) || [];
     const price = parseNumber(item?.c?.[0]);
     const open = parseNumber(item?.o);
     if (!key || !isPositiveNumber(price)) return [];
     return [
       quote(asset, price, "Kraken", {
-        changePct: isPositiveNumber(open) ? ((price / open) - 1) * 100 : null,
+        changePct: isPositiveNumber(open) ? (price / open - 1) * 100 : null,
         sourceUrl: url.toString(),
         sourceTime: null,
         unit: "coin",
@@ -1196,7 +1198,9 @@ export async function onRequestGet(context = {}) {
     {
       id: "goldApi",
       run: () => providerGoldApi([...selected]),
-      assetIds: [...selected].filter((asset) => ["gold", "silver", "platinum", "palladium", "bitcoin", "ethereum"].includes(asset)),
+      assetIds: [...selected].filter((asset) =>
+        ["gold", "silver", "platinum", "palladium", "bitcoin", "ethereum"].includes(asset),
+      ),
       enabled: wantsAny("gold", "silver", "platinum", "palladium", "bitcoin", "ethereum"),
       localOnly: true,
     },
@@ -1280,9 +1284,9 @@ export async function onRequestGet(context = {}) {
     "goldApi",
     "yahooMetals",
   ].flatMap((id) => {
-      const result = providerResults.get(id);
-      return result?.status === "fulfilled" ? result.value.quotes : [];
-    });
+    const result = providerResults.get(id);
+    return result?.status === "fulfilled" ? result.value.quotes : [];
+  });
   const directLocalQuotes = ["nobitex"].flatMap((id) => {
     const result = providerResults.get(id);
     return result?.status === "fulfilled" ? result.value.quotes : [];
