@@ -134,7 +134,9 @@
       }
     },
     "empty": "实时数据暂不可用。",
-    "providerDescription": "Nobitex、Binance、Coinbase、Kraken 和公开版 CoinMarketCap 无需密钥即可提供加密货币报价。Gold API 补充全球黄金、白银、铂金和钯金报价。可选的 CoinGecko、CoinMarketCap 和 Gold API 密钥可增加加密货币来源和历史数据。每个密钥仅通过对应来源请求的请求头发送。",
+    "providerDescription": "Nobitex、Binance、Coinbase、Kraken 和公开版 CoinMarketCap 无需密钥即可提供加密货币报价。Gold API、GoldPrice.com 和 Standard Bullion 提供全球贵金属报价。可选的 MetalCharts 密钥可增加金属数据来源，并且仅在服务器持久安全配置完成后使用。操作方确认使用条款并配置服务器持久安全后，可选的 Tindex 密钥可增加德黑兰指数来源。密钥仅通过对应服务器请求的请求头发送。",
+    "metalChartsCredit": "金属价格来源：",
+    "standardBullionCredit": "数据来源：",
     "noChange": "暂无日涨跌数据",
     "sourceQuotes": "个有效报价",
     "sourceCoverage": "已接受 / 已检查来源：{accepted}/{attempted}",
@@ -145,6 +147,7 @@
     "providerResponded": "已响应",
     "providerEmpty": "已响应，但没有可读取的报价",
     "providerFailed": "失败",
+    "providerNotConfigured": "可选来源尚未配置",
     "providerFailure": {
       "timeout": "请求超时",
       "rate_limited": "已达到请求频率限制",

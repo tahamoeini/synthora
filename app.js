@@ -1405,10 +1405,26 @@ function marketSourceCoverageLabel(item, diagnostics) {
   return `${formatIRR(accepted)} ${text("market.sources", "source")}`;
 }
 
+function marketSourceLabelMarkup(source) {
+  if (source === "MetalCharts")
+    return `${escapeHTML(text("market.metalChartsCredit", "Metal prices by"))} <a href="https://metalcharts.org/" target="_blank" rel="noopener noreferrer">MetalCharts</a>`;
+  if (source === "GoldPrice.com")
+    return `<a href="https://goldprice.com/" target="_blank" rel="noopener noreferrer">GoldPrice.com</a>`;
+  if (source === "Standard Bullion")
+    return `${escapeHTML(text("market.standardBullionCredit", "Data by"))} <a href="https://standardbullion.com/market-data" target="_blank" rel="noopener noreferrer">Standard Bullion</a>`;
+  return escapeHTML(source || "منبع بازار");
+}
+
 function lastKnownPriceMarkup(assetId, data, cachedMarket, currentItem) {
   const quote = lastKnownMarketQuote(assetId, data, cachedMarket);
   if (!quote) return "";
-  return `<small class="market-last-known"><strong>${escapeHTML(text("market.lastKnown", "آخرین مقدار ثبت‌شده"))}:</strong> <bdi dir="auto">${escapeHTML(formatMarketPrice(quote.price, { unit: quote.unit || currentItem?.unit || INSTRUMENT_REGISTRY[assetId]?.unit }))}</bdi> · ${escapeHTML(text("market.lastKnownObserved", "مشاهده"))} ${escapeHTML(formatDateTime(quote.observedAt))} · ${escapeHTML(freshnessLabel(quote.observedAt))}</small>`;
+  const attribution = Array.isArray(quote.sources)
+    ? quote.sources
+        .filter((source) => ["MetalCharts", "GoldPrice.com", "Standard Bullion"].includes(source))
+        .map((source) => ` · ${marketSourceLabelMarkup(source)}`)
+        .join("")
+    : "";
+  return `<small class="market-last-known"><strong>${escapeHTML(text("market.lastKnown", "آخرین مقدار ثبت‌شده"))}:</strong> <bdi dir="auto">${escapeHTML(formatMarketPrice(quote.price, { unit: quote.unit || currentItem?.unit || INSTRUMENT_REGISTRY[assetId]?.unit }))}</bdi> · ${escapeHTML(text("market.lastKnownObserved", "مشاهده"))} ${escapeHTML(formatDateTime(quote.observedAt))} · ${escapeHTML(freshnessLabel(quote.observedAt))}${attribution}</small>`;
 }
 
 function marketConflictSourcesMarkup(item) {
@@ -1416,7 +1432,7 @@ function marketConflictSourcesMarkup(item) {
   const values = item.sourceValues
     .map((source) => {
       const observed = source.observedAt ? formatDateTime(source.observedAt) : "زمان مشاهده نامشخص";
-      return `<div class="market-conflict-source"><strong>${escapeHTML(source.source || "منبع بازار")}</strong><b><bdi dir="auto">${escapeHTML(formatMarketPrice(source.price, item))}</bdi></b><small>زمان مشاهده: ${escapeHTML(observed)}</small></div>`;
+      return `<div class="market-conflict-source"><strong>${marketSourceLabelMarkup(source.source)}</strong><b><bdi dir="auto">${escapeHTML(formatMarketPrice(source.price, item))}</bdi></b><small>زمان مشاهده: ${escapeHTML(observed)}</small></div>`;
     })
     .join("");
   return `<div class="market-conflict-values" aria-label="مقادیر منابع متعارض">${values}</div>`;
@@ -1583,7 +1599,7 @@ function marketSourceValuesMarkup(item) {
               ? " · پرت؛ در برآورد لحاظ نشد"
               : " · در برآورد لحاظ نشد"
           : "";
-      return `<span class="${conflict ? "is-outlier" : ""}" title="${escapeHTML(quote + observed + exclusion)}"><bdi dir="auto">${escapeHTML(formatMarketPrice(source.price, item))}</bdi> · ${escapeHTML(source.source)}${escapeHTML(exclusion)}</span>`;
+      return `<span class="${conflict ? "is-outlier" : ""}" title="${escapeHTML(quote + observed + exclusion)}"><bdi dir="auto">${escapeHTML(formatMarketPrice(source.price, item))}</bdi> · ${marketSourceLabelMarkup(source.source)}${escapeHTML(exclusion)}</span>`;
     })
     .join("")}</div>`;
 }
@@ -1921,10 +1937,14 @@ function renderMarketDiagnostics(data) {
     coinbase: "Coinbase",
     kraken: "Kraken",
     goldApi: "Gold API",
+    goldPrice: "GoldPrice.com",
+    standardBullion: "Standard Bullion",
+    metalCharts: "MetalCharts",
     metalsLive: "Metals.live",
     yahooMetals: "Yahoo Finance",
     tsetmc: "TSETMC",
     tgjuIndex: "TGJU · شاخص کل",
+    tindex: "Tindex",
     fixedIncome: "کاریزما",
   };
   const providers = Object.entries(data.diagnostics.providers || {})
@@ -1934,12 +1954,17 @@ function renderMarketDiagnostics(data) {
           ? Number(item.quoteCount) > 0
             ? text("market.providerResponded")
             : text("market.providerEmpty")
-          : item.status === "skipped"
-            ? text("market.providerSkipped")
-            : text("market.providerFailed");
+          : item.status === "not_configured"
+            ? text("market.providerNotConfigured")
+            : item.status === "skipped"
+              ? text("market.providerSkipped")
+              : text("market.providerFailed");
       const failure = item.failureCode ? text(`market.providerFailure.${item.failureCode}`, "") : "";
       const statusDetail = [status, failure].filter(Boolean).join(" · ");
-      return `<div class="diagnostic-row"><div><strong>${escapeHTML(providerNames[id] || id)}</strong><small>${escapeHTML(statusDetail)}</small></div><b>${formatIRR(item.quoteCount || 0)} ${escapeHTML(text("market.providerQuotesReturned"))}</b></div>`;
+      const label = ["metalCharts", "goldPrice", "standardBullion"].includes(id)
+        ? marketSourceLabelMarkup(providerNames[id])
+        : escapeHTML(providerNames[id] || id);
+      return `<div class="diagnostic-row"><div><strong>${label}</strong><small>${escapeHTML(statusDetail)}</small></div><b>${formatIRR(item.quoteCount || 0)} ${escapeHTML(text("market.providerQuotesReturned"))}</b></div>`;
     })
     .join("");
   const coverageItems = Object.entries(data.diagnostics.assets || {});
@@ -3435,7 +3460,7 @@ function historyCoverageMessage(assetId) {
   };
   const reason =
     reasons[coverage.reason] ||
-    (coverage.status === "insufficient-history" ? "مشاهده کافی نیست" : "تاریخچه در دسترس نیست")
+    (coverage.status === "insufficient-history" ? "مشاهده کافی نیست" : "تاریخچه در دسترس نیست");
   return `${reason}${sourceDetails ? ` · ${sourceDetails}` : ""}`;
 }
 
@@ -3464,8 +3489,7 @@ function renderHistoryAssetOptions() {
 }
 
 function historyReasonLabel(reason) {
-  if (reason === "nobitex-history-unavailable")
-    return "منبع عمومی تاریخچه رمزارز پاسخ نداد؛ با اتصال دوباره تلاش کن.";
+  if (reason === "nobitex-history-unavailable") return "منبع عمومی تاریخچه رمزارز پاسخ نداد؛ با اتصال دوباره تلاش کن.";
   if (reason === "coingecko-demo-key-missing")
     return "برای نمایش تاریخچه رمزارز، کلید اختیاری CoinGecko Demo را در تنظیمات سرور قرار بده.";
   if (reason === "dated-fx-unavailable" || reason === "no-matching-dated-fx")

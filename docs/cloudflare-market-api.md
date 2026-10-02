@@ -18,21 +18,26 @@ The migrations store hashed API-session identifiers, request counters, provider 
 
 In the Pages project, open **Settings → Variables and Secrets** and add these as **Secrets**, for each environment that should use the API:
 
-| Secret                       | Required                 | Purpose                                                                                                                                                                                            |
-| ---------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `API_SESSION_SIGNING_SECRET` | For D1 security and sync | HMAC signing key for the HttpOnly session cookie. Use a password manager or secure random generator to create at least 32 random characters. Public-source fallback does not use a session cookie. |
-| `COINGECKO_DEMO_API_KEY`     | Optional                 | Platform CoinGecko Demo key. A valid user key takes precedence when the request includes one.                                                                                                      |
-| `COINMARKETCAP_API_KEY`      | Optional                 | Platform CoinMarketCap key used for an additional crypto quote source.                                                                                                                             |
-| `GOLD_API_KEY`               | Optional                 | Server-side Gold API key for daily metal/BTC/ETH history. Free history access is currently limited to 10 history/OHLC requests per hour; Synthora enforces an application-wide hourly ceiling of nine using migration 0005. |
+| Secret                       | Required                 | Purpose                                                                                                                                                                                                                                                 |
+| ---------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `API_SESSION_SIGNING_SECRET` | For D1 security and sync | HMAC signing key for the HttpOnly session cookie. Use a password manager or secure random generator to create at least 32 random characters. Public-source fallback does not use a session cookie.                                                      |
+| `COINGECKO_DEMO_API_KEY`     | Optional                 | Platform CoinGecko Demo key. A valid user key takes precedence when the request includes one.                                                                                                                                                           |
+| `COINMARKETCAP_API_KEY`      | Optional                 | Platform CoinMarketCap key used for an additional crypto quote source.                                                                                                                                                                                  |
+| `GOLD_API_KEY`               | Optional                 | Server-side Gold API key for daily metal/BTC/ETH history. Free history access is currently limited to 10 history/OHLC requests per hour; Synthora enforces an application-wide hourly ceiling of nine using migration 0005.                             |
+| `METALCHARTS_API_KEY`        | Optional                 | MetalCharts live metals source. Free plan requires a visible credit link and has a 200-request monthly limit; Synthora defaults to 180 requests per month and requires `API_USAGE_DB` plus `API_SESSION_SIGNING_SECRET`.                                |
+| `TINDEX_API_KEY`             | Optional                 | Tindex Tehran index source. The free developer plan documents 1 request per minute and 100 per day; Synthora requires D1-backed security and `TINDEX_USE_CONFIRMED=true`. Confirm the provider's current terms for the intended use before enabling it. |
 
 Do not place these values in `app.js`, HTML, source control, build variables exposed to the browser, a URL, or a support screenshot. Pages Functions read the secrets from the server-side environment. Redeploy after adding or rotating a secret.
 
 Optional, under **Variables** (not Secrets):
 
-| Variable                           | Default | Allowed behavior                                                                                                                                                                            |
-| ---------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `COINGECKO_PLATFORM_MONTHLY_LIMIT` | `8000`  | Application-level monthly request ceiling for the platform key. Values are clamped to 1–9,500 to leave headroom under CoinGecko's published 10,000-call Demo plan cap (checked 2026-09-26). |
-| `YAHOO_METALS_LICENSE_CONFIRMED`   | unset   | Set to the exact string `true` only after confirming that the intended Yahoo metals data use is permitted.                                                                                  |
+| Variable                             | Default | Allowed behavior                                                                                                                                                                            |
+| ------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `COINGECKO_PLATFORM_MONTHLY_LIMIT`   | `8000`  | Application-level monthly request ceiling for the platform key. Values are clamped to 1–9,500 to leave headroom under CoinGecko's published 10,000-call Demo plan cap (checked 2026-09-26). |
+| `METALCHARTS_PLATFORM_MONTHLY_LIMIT` | `180`   | Application-level monthly request ceiling for MetalCharts. The configured value is clamped to 1–9,500; keep it at or below the active provider plan quota.                                  |
+| `TINDEX_PLATFORM_MONTHLY_LIMIT`      | `2400`  | Application-level monthly request ceiling for Tindex. The upstream free plan also enforces 1 request per minute and 100 per day.                                                            |
+| `TINDEX_USE_CONFIRMED`               | unset   | Set to the exact string `true` only after confirming that the intended Tindex API use is permitted.                                                                                         |
+| `YAHOO_METALS_LICENSE_CONFIRMED`     | unset   | Set to the exact string `true` only after confirming that the intended Yahoo metals data use is permitted.                                                                                  |
 
 The platform key is used only when no valid user key is supplied. Once its D1 counter reaches the configured ceiling, requests stop using it until the next month.
 
@@ -51,6 +56,8 @@ Current server-side limits are:
 - `POST /api/session`: 60 new sessions per hour per Cloudflare edge address, enforced atomically in D1. A valid existing session is reused without spending this allowance. Requests without `CF-Connecting-IP` fail closed.
 - Platform CoinMarketCap key: 15,000 requests per month maximum, enforced by this application.
 - Platform CoinGecko key: 8,000 requests per month by default, capped at 9,500 by the application.
+- Platform MetalCharts key: 180 requests per month by default, capped at 9,500 by the application. Its free plan documents 200 requests per month, so leave operating headroom.
+- Platform Tindex key: 2,400 requests per month by default, in addition to Tindex's free-plan per-minute and per-day limits.
 
 The browser also reuses market responses for 90 seconds and history responses for one hour. Clearing cookies creates a new browser session, so per-session quotas are not an identity system; shared monthly and hourly provider ceilings protect platform keys from aggregate overuse. Gold API history is capped at nine requests per aligned hour and spaced by at least 401 seconds to remain within its published 10-request rolling-hour free allowance.
 
@@ -100,8 +107,8 @@ A `503` response with `api-security-not-configured` means the D1 binding or sign
 ## Operational security
 
 - Keep Pages deployments on HTTPS and rotate a secret immediately if it is exposed.
-- Never log request headers containing `X-CoinGecko-API-Key` or `X-CoinMarketCap-API-Key`; the Pages Function code intentionally omits user keys from diagnostics and responses.
+- Never log request headers containing `X-CoinGecko-API-Key`, `X-CoinMarketCap-API-Key`, or `Authorization`; the Pages Function code intentionally omits provider keys from diagnostics and responses.
 - The application enforces same-origin requests, a signed session cookie, route counters in D1, and an atomic monthly counter before spending the platform provider key.
 - These controls reduce accidental refresh consumption and key exposure. They do not replace Cloudflare account MFA, least-privilege access, secret rotation, or provider-side usage alerts.
 
-References: [Pages Functions bindings](https://developers.cloudflare.com/pages/functions/bindings/), [D1 database API](https://developers.cloudflare.com/d1/worker-api/d1-database/), [CoinGecko API plans](https://www.coingecko.com/en/api/pricing), [Gold API pricing](https://gold-api.com/pricing), and [World Bank API guidance](https://datahelpdesk.worldbank.org/knowledgebase/articles/889392).
+References: [Pages Functions bindings](https://developers.cloudflare.com/pages/functions/bindings/), [D1 database API](https://developers.cloudflare.com/d1/worker-api/d1-database/), [CoinGecko API plans](https://www.coingecko.com/en/api/pricing), [Gold API pricing](https://gold-api.com/pricing), [Standard Bullion market data and attribution terms](https://standardbullion.com/market-data), [MetalCharts API terms and pricing](https://metalcharts.org/api-terms), [Tindex developer API](https://tindex.app/en/developers/), and [World Bank API guidance](https://datahelpdesk.worldbank.org/knowledgebase/articles/889392).

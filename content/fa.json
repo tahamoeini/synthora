@@ -127,7 +127,9 @@
       }
     },
     "empty": "داده زنده فعلا در دسترس نیست.",
-    "providerDescription": "نوبیتکس، بایننس، Coinbase، Kraken و CoinMarketCap عمومی بدون کلید قیمت رمزارز می‌دهند؛ Gold API نرخ جهانی طلا، نقره، پلاتین و پالادیوم را اضافه می‌کند. کلیدهای اختیاری CoinGecko، CoinMarketCap و Gold API منابع و تاریخچه بیشتری می‌افزایند. هر کلید فقط در هدر درخواست همان منبع ارسال می‌شود.",
+    "providerDescription": "نوبیتکس، بایننس، Coinbase، Kraken و CoinMarketCap عمومی بدون کلید قیمت رمزارز می‌دهند. Gold API، GoldPrice.com و Standard Bullion نرخ فلزات گران‌بها را فراهم می‌کنند. کلید اختیاری MetalCharts منبع دیگری برای فلزات اضافه می‌کند و فقط با نشست و پایگاه داده امن سرور فعال است. کلید اختیاری Tindex هم می‌تواند شاخص تهران را تکمیل کند؛ فعال‌سازی آن به تأیید مجوز استفاده و امنیت پایدار سرور نیاز دارد. کلیدهای دیگر فقط در هدر درخواست سرور همان منبع ارسال می‌شوند.",
+    "metalChartsCredit": "قیمت فلز از",
+    "standardBullionCredit": "داده از",
     "noChange": "تغییر روزانه نامشخص",
     "sources": "منبع",
     "sourceQuotes": "قیمت معتبر",
@@ -148,6 +150,7 @@
     "providerResponded": "پاسخ داده",
     "providerEmpty": "پاسخ داده؛ نرخ قابل‌خواندن نداشت",
     "providerFailed": "ناموفق",
+    "providerNotConfigured": "منبع اختیاری تنظیم نشده است",
     "providerFailure": {
       "timeout": "زمان درخواست تمام شد",
       "rate_limited": "محدودیت تعداد درخواست",

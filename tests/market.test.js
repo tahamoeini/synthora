@@ -259,7 +259,10 @@ test("public Coinbase and Kraken quotes retain USD provenance and reconcile thro
       return new Response(JSON.stringify({ data: [{ slug: "bitcoin", price: 60000 }] }), { status: 200 });
     if (url.hostname === "api.nobitex.ir")
       return new Response(
-        JSON.stringify({ status: "ok", stats: { "btc-rls": { latest: "30000000000" }, "usdt-rls": { latest: "500000" } } }),
+        JSON.stringify({
+          status: "ok",
+          stats: { "btc-rls": { latest: "30000000000" }, "usdt-rls": { latest: "500000" } },
+        }),
         { status: 200 },
       );
     if (url.hostname === "api.binance.com")
@@ -355,7 +358,7 @@ test("a platform CoinMarketCap key is ignored without durable security and publi
   }
 });
 
-test("Gold API adds timestamped platinum and palladium quotes while copper coverage stays honest", async () => {
+test("precious-metal quotes remain available when Metals.live fails and Gold API adds copper", async () => {
   const originalFetch = globalThis.fetch;
   const apiRequests = [];
   globalThis.fetch = async (input) => {
@@ -370,30 +373,139 @@ test("Gold API adds timestamped platinum and palladium quotes while copper cover
       return new Response(JSON.stringify({ usd: { value: "50000", date: Math.floor(Date.now() / 1000) } }), {
         status: 200,
       });
-    if (url.hostname === "api.metals.live")
-      return new Response(JSON.stringify([{ platinum: 3000, palladium: 1000, copper: 5 }]), { status: 200 });
+    if (url.hostname === "api.metals.live") return new Response("temporarily unavailable", { status: 503 });
     if (url.hostname === "api.gold-api.com") {
       const symbol = url.pathname.split("/").at(-1);
       apiRequests.push(symbol);
-      const price = { XPT: 3000, XPD: 1000 }[symbol];
+      const price = { XPT: 3000, XPD: 1000, HG: 5 }[symbol];
       return new Response(JSON.stringify({ symbol, currency: "USD", price, updatedAt: new Date().toISOString() }), {
         status: 200,
       });
     }
+    if (url.hostname === "goldprice.com")
+      return new Response(
+        JSON.stringify({
+          asOf: new Date().toISOString(),
+          metals: { platinum: { perTroyOunce: 3000 }, palladium: { perTroyOunce: 1000 } },
+        }),
+        { status: 200 },
+      );
+    if (url.hostname === "standardbullion.com")
+      return new Response(
+        JSON.stringify({
+          updated: new Date().toISOString(),
+          metals: [
+            { symbol: "XPT", ask: 3050, bid: 2950 },
+            { symbol: "XPD", ask: 1100, bid: 900 },
+          ],
+        }),
+        { status: 200 },
+      );
     throw new Error(`Unexpected request: ${url.href}`);
   };
   try {
     const response = await marketRequest("https://app.test/api/market?assets=platinum,palladium,copper");
     const data = await response.json();
     assert.equal(response.status, 200);
-    assert.deepEqual(new Set(apiRequests), new Set(["XPT", "XPD"]));
-    assert.equal(data.assets.platinum.sourceCount, 2);
-    assert.deepEqual(new Set(data.assets.platinum.sources), new Set(["Gold API", "Metals.live"]));
+    assert.deepEqual(new Set(apiRequests), new Set(["XPT", "XPD", "HG"]));
+    assert.equal(data.assets.platinum.sourceCount, 3);
+    assert.deepEqual(new Set(data.assets.platinum.sources), new Set(["Gold API", "GoldPrice.com", "Standard Bullion"]));
     assert.equal(data.assets.platinum.dependencies[0].instrumentId, "dollar");
-    assert.equal(data.assets.palladium.sourceCount, 2);
+    assert.equal(data.assets.palladium.sourceCount, 3);
     assert.equal(data.assets.copper.sourceCount, 1);
-    assert.equal(data.assets.copper.configuredSourceCount, 1);
-    assert.equal(data.diagnostics.providers.goldApi.quoteCount, 2);
+    assert.equal(data.assets.platinum.configuredSourceCount, 4);
+    assert.equal(data.assets.palladium.configuredSourceCount, 4);
+    assert.equal(data.assets.copper.configuredSourceCount, 2);
+    assert.equal(data.diagnostics.providers.goldApi.quoteCount, 3);
+    assert.equal(data.diagnostics.providers.goldPrice.quoteCount, 2);
+    assert.equal(data.diagnostics.providers.standardBullion.quoteCount, 2);
+    assert.equal(data.diagnostics.providers.metalsLive.status, "rejected");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("MetalCharts adds timestamped metal quotes with a private key and visible attribution", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  const observedAt = new Date().toISOString();
+  const context = await createSecureApiContext("https://app.test/api/market?assets=platinum,palladium,copper", {
+    METALCHARTS_API_KEY: "metalcharts-secret",
+  });
+  globalThis.fetch = async (input, options = {}) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    requests.push({ url, headers: options.headers || {} });
+    if (url.hostname === "www.tgju.org")
+      return new Response(
+        `<td data-col="info.last_trade.PDrCotVal">500000</td><span id="server-time" data-value="${observedAt}"></span>`,
+        { status: 200 },
+      );
+    if (url.hostname === "www.bonbast.com") return new Response("token unavailable", { status: 200 });
+    if (url.hostname === "raw.githubusercontent.com")
+      return new Response(JSON.stringify({ usd: { value: "50000", date: Math.floor(Date.now() / 1000) } }), {
+        status: 200,
+      });
+    if (url.hostname === "api.metals.live")
+      return new Response(JSON.stringify([{ platinum: 3000, palladium: 1000, copper: 5 }]), { status: 200 });
+    if (url.hostname === "api.gold-api.com") {
+      const symbol = url.pathname.split("/").at(-1);
+      const price = { XPT: 3000, XPD: 1000, HG: 5 }[symbol];
+      return new Response(JSON.stringify({ symbol, currency: "USD", price, updatedAt: observedAt }), {
+        status: 200,
+      });
+    }
+    if (url.hostname === "goldprice.com")
+      return new Response(
+        JSON.stringify({
+          asOf: observedAt,
+          metals: { platinum: { perTroyOunce: 3000 }, palladium: { perTroyOunce: 1000 } },
+        }),
+        { status: 200 },
+      );
+    if (url.hostname === "standardbullion.com")
+      return new Response(
+        JSON.stringify({
+          updated: observedAt,
+          metals: [
+            { symbol: "XPT", ask: 3001, bid: 2999 },
+            { symbol: "XPD", ask: 1001, bid: 999 },
+          ],
+        }),
+        { status: 200 },
+      );
+    if (url.hostname === "api.metalcharts.org")
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            XPT: { symbol: "XPT", price: 3000, timestamp: observedAt, stale: false },
+            XPD: { symbol: "XPD", price: 1000, timestamp: observedAt, stale: false },
+            HG: { symbol: "HG", price: 5, timestamp: observedAt, stale: false },
+          },
+          timestamp: observedAt,
+          isStale: false,
+        }),
+        { status: 200 },
+      );
+    throw new Error(`Unexpected provider request: ${url.href}`);
+  };
+  try {
+    const response = await onRequestGet(context);
+    const data = await response.json();
+    const metalChartsRequest = requests.find((request) => request.url.hostname === "api.metalcharts.org");
+    assert.ok(metalChartsRequest);
+    assert.equal(metalChartsRequest.url.search, "");
+    assert.equal(metalChartsRequest.headers.Authorization, "Bearer metalcharts-secret");
+    assert.equal(JSON.stringify(data).includes("metalcharts-secret"), false);
+    for (const asset of ["platinum", "palladium", "copper"]) {
+      const expectedSources = asset === "copper" ? 3 : 5;
+      assert.equal(data.assets[asset].sourceCount, expectedSources);
+      assert.equal(data.assets[asset].configuredSourceCount, expectedSources);
+      assert.ok(data.assets[asset].sources.includes("MetalCharts"));
+    }
+    assert.ok(data.assets.platinum.sources.includes("Standard Bullion"));
+    assert.equal(data.diagnostics.providers.metalCharts.status, "fulfilled");
+    assert.equal(data.diagnostics.providers.metalCharts.quoteCount, 3);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -641,6 +753,58 @@ test("TSETMC and TGJU index sources are queried together", async () => {
     assert.equal(data.diagnostics.assets.bourseIndex.attempted, 2);
     assert.equal(data.diagnostics.providers.tsetmc.status, "fulfilled");
     assert.equal(data.diagnostics.providers.tgjuIndex.status, "fulfilled");
+    assert.equal(data.diagnostics.providers.tindex.status, "not_configured");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Tindex adds a third Tehran index source only with a private key and confirmed use", async () => {
+  const originalFetch = globalThis.fetch;
+  const observedAt = new Date().toISOString();
+  const context = await createSecureApiContext("https://app.test/api/market?assets=bourseIndex", {
+    TINDEX_API_KEY: "tindex-secret",
+    TINDEX_USE_CONFIRMED: "true",
+  });
+  const requests = [];
+  globalThis.fetch = async (input, options = {}) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    requests.push({ url, headers: options.headers || {} });
+    if (url.hostname === "cdn.tsetmc.com")
+      return new Response(JSON.stringify({ indexValue: 2000000, previousValue: 1990000 }), { status: 200 });
+    if (url.hostname === "www.tgju.org" && url.pathname.endsWith("gc30"))
+      return new Response(
+        `<span data-col="info.last_trade.PDrCotVal">2,000,000</span><span id="server-time" data-value="${observedAt}"></span>`,
+        { status: 200 },
+      );
+    if (url.hostname === "tindex.app")
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: [
+            {
+              key: "market",
+              categorySlug: "stock-energy",
+              rows: [{ slug: "TEDPIX", price: 2000000, updated_at: observedAt }],
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    throw new Error(`Unexpected provider request: ${url.href}`);
+  };
+  try {
+    const response = await onRequestGet(context);
+    const data = await response.json();
+    const request = requests.find((item) => item.url.hostname === "tindex.app");
+    assert.ok(request);
+    assert.equal(request.url.search, "?lang=en");
+    assert.equal(request.headers.Authorization, "Bearer tindex-secret");
+    assert.equal(JSON.stringify(data).includes("tindex-secret"), false);
+    assert.equal(data.assets.bourseIndex.sourceCount, 3);
+    assert.equal(data.assets.bourseIndex.configuredSourceCount, 3);
+    assert.equal(data.diagnostics.providers.tindex.status, "fulfilled");
+    assert.equal(data.diagnostics.providers.tindex.quoteCount, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }

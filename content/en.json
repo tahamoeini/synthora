@@ -134,7 +134,9 @@
       }
     },
     "empty": "Live data is currently unavailable.",
-    "providerDescription": "Nobitex, Binance, Coinbase, Kraken, and public CoinMarketCap provide crypto quotes without a key. Gold API adds global gold, silver, platinum, and palladium quotes. Optional CoinGecko, CoinMarketCap, and Gold API keys add crypto sources and historical data. Each key is sent only in that provider's request header.",
+    "providerDescription": "Nobitex, Binance, Coinbase, Kraken, and public CoinMarketCap provide crypto quotes without a key. Gold API, GoldPrice.com, and Standard Bullion provide global precious-metal quotes. An optional MetalCharts key adds another metal source and is used only with durable server security. An optional Tindex key can add a Tehran index source after the operator confirms its terms and configures durable server security. Keys are sent only in their provider's server-side request headers.",
+    "metalChartsCredit": "Metal prices by",
+    "standardBullionCredit": "Data by",
     "noChange": "Daily change unavailable",
     "sourceQuotes": "valid quotes",
     "sourceCoverage": "Accepted / attempted sources: {accepted}/{attempted}",
@@ -145,6 +147,7 @@
     "providerResponded": "Responded",
     "providerEmpty": "Responded without a readable quote",
     "providerFailed": "Failed",
+    "providerNotConfigured": "Optional source is not configured",
     "providerFailure": {
       "timeout": "Request timed out",
       "rate_limited": "Rate limit reached",

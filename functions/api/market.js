@@ -23,6 +23,10 @@ const COINBASE_TICKER_BASE = "https://api.exchange.coinbase.com/products/";
 const KRAKEN_TICKER_URL = "https://api.kraken.com/0/public/Ticker";
 const NOBITEX_STATS_URL = "https://api.nobitex.ir/market/stats";
 const GOLD_API_PRICE_BASE = "https://api.gold-api.com/price/";
+const METALCHARTS_PRICE_URL = "https://api.metalcharts.org/v1/prices";
+const GOLDPRICE_SPOT_URL = "https://goldprice.com/data/spot.json";
+const STANDARD_BULLION_SPOT_URL = "https://standardbullion.com/spot-prices.json";
+const TINDEX_BOARDS_URL = "https://tindex.app/api/public/boards?lang=en";
 const METALS_LIVE_URL = "https://api.metals.live/v1/spot";
 const YAHOO_METAL_CHART_BASE = "https://query1.finance.yahoo.com/v8/finance/chart/";
 const TSETMC_INDEX_URL = "https://cdn.tsetmc.com/api/Index/GetIndexB1LastDay";
@@ -479,7 +483,8 @@ async function providerCryptoCoinbase(requested = ["bitcoin", "ethereum"]) {
     }),
   );
   const quotes = results.flatMap((result) => (result.status === "fulfilled" && result.value ? [result.value] : []));
-  if (!quotes.length) throw results.find((result) => result.status === "rejected")?.reason || new Error("Coinbase unavailable");
+  if (!quotes.length)
+    throw results.find((result) => result.status === "rejected")?.reason || new Error("Coinbase unavailable");
   return quotes;
 }
 
@@ -495,16 +500,17 @@ async function providerCryptoKraken(requested = ["bitcoin", "ethereum"]) {
   if (Array.isArray(data?.error) && data.error.length) throw new Error("Kraken ticker returned an error");
   const rows = data?.result || {};
   return selected.flatMap(([asset, pair]) => {
-    const [key, item] = Object.entries(rows).find(([name]) => {
-      const normalized = name.toUpperCase().replace(/[^A-Z]/g, "");
-      return pairMatchers[asset].some((symbol) => normalized.includes(symbol));
-    }) || [];
+    const [key, item] =
+      Object.entries(rows).find(([name]) => {
+        const normalized = name.toUpperCase().replace(/[^A-Z]/g, "");
+        return pairMatchers[asset].some((symbol) => normalized.includes(symbol));
+      }) || [];
     const price = parseNumber(item?.c?.[0]);
     const open = parseNumber(item?.o);
     if (!key || !isPositiveNumber(price)) return [];
     return [
       quote(asset, price, "Kraken", {
-        changePct: isPositiveNumber(open) ? ((price / open) - 1) * 100 : null,
+        changePct: isPositiveNumber(open) ? (price / open - 1) * 100 : null,
         sourceUrl: url.toString(),
         sourceTime: null,
         unit: "coin",
@@ -599,6 +605,8 @@ async function providerGoldApi(requested = []) {
     silver: { symbol: "XAG", factor: 1, divisor: TROY_OUNCE_TO_GRAMS, unit: "gram" },
     platinum: { symbol: "XPT", factor: 1, divisor: TROY_OUNCE_TO_GRAMS, unit: "gram" },
     palladium: { symbol: "XPD", factor: 1, divisor: TROY_OUNCE_TO_GRAMS, unit: "gram" },
+    // Gold API lists copper as HG; COMEX HG is quoted in USD per pound.
+    copper: { symbol: "HG", factor: 1, divisor: 453.59237, unit: "gram" },
     bitcoin: { symbol: "BTC", factor: 1, divisor: 1, unit: "coin" },
     ethereum: { symbol: "ETH", factor: 1, divisor: 1, unit: "coin" },
   };
@@ -627,6 +635,168 @@ async function providerGoldApi(requested = []) {
   if (!quotes.length && results.length)
     throw results.find((result) => result.status === "rejected")?.reason || new Error("Gold API returned no quotes");
   return quotes;
+}
+
+async function providerGoldPrice(requested = []) {
+  const metals = {
+    gold: { key: "gold", factor: 0.75 },
+    silver: { key: "silver", factor: 1 },
+    platinum: { key: "platinum", factor: 1 },
+    palladium: { key: "palladium", factor: 1 },
+  };
+  const selected = Object.entries(metals).filter(([asset]) => requested.includes(asset));
+  if (!selected.length) return [];
+  const data = await fetchJson(GOLDPRICE_SPOT_URL, { cf: { cacheTtl: 30, cacheEverything: true } });
+  const rows = data?.metals || data?.prices || data?.data?.metals || data?.data || data;
+  if (!rows || typeof rows !== "object") throw new Error("GoldPrice.com returned an unexpected quote payload");
+
+  return selected
+    .map(([asset, metal]) => {
+      const item = rows[metal.key];
+      const row = item && typeof item === "object" ? item : { price: item };
+      const perGram = parseNumber(row.perGram ?? row.per_gram ?? row.pricePerGram ?? row.price_per_gram);
+      const perTroyOunce = parseNumber(
+        row.perTroyOunce ??
+          row.per_troy_ounce ??
+          row.pricePerTroyOunce ??
+          row.price_per_troy_ounce ??
+          row.perOunce ??
+          row.pricePerOunce ??
+          row.price_per_ounce ??
+          row.price,
+      );
+      const price = isPositiveNumber(perGram)
+        ? perGram * metal.factor
+        : isPositiveNumber(perTroyOunce)
+          ? (perTroyOunce * metal.factor) / TROY_OUNCE_TO_GRAMS
+          : null;
+      if (!isPositiveNumber(price)) return null;
+      return quote(asset, price, "GoldPrice.com", {
+        changePct: parseNumber(row.changePct ?? row.change_percent ?? row.change),
+        sourceUrl: GOLDPRICE_SPOT_URL,
+        sourceTime: row.asOf || row.as_of || data.asOf || data.as_of || data.timestamp || null,
+        unit: "gram",
+        currency: "USD",
+        quoteType: "direct",
+      });
+    })
+    .filter(Boolean);
+}
+
+async function providerStandardBullion(requested = []) {
+  const metals = {
+    gold: { symbol: "XAU", factor: 0.75 },
+    silver: { symbol: "XAG", factor: 1 },
+    platinum: { symbol: "XPT", factor: 1 },
+    palladium: { symbol: "XPD", factor: 1 },
+  };
+  const selected = Object.entries(metals).filter(([asset]) => requested.includes(asset));
+  if (!selected.length) return [];
+  const data = await fetchJson(STANDARD_BULLION_SPOT_URL, { cf: { cacheTtl: 15, cacheEverything: true } });
+  if (!Array.isArray(data?.metals)) throw new Error("Standard Bullion returned an unexpected quote payload");
+
+  const rows = new Map(data.metals.map((item) => [item?.symbol, item]));
+  return selected
+    .map(([asset, metal]) => {
+      const item = rows.get(metal.symbol);
+      const ask = parseNumber(item?.ask);
+      const bid = parseNumber(item?.bid);
+      if (!isPositiveNumber(ask) || !isPositiveNumber(bid)) return null;
+      const midpointUsdPerTroyOunce = (ask + bid) / 2;
+      return quote(asset, (midpointUsdPerTroyOunce * metal.factor) / TROY_OUNCE_TO_GRAMS, "Standard Bullion", {
+        sourceUrl: STANDARD_BULLION_SPOT_URL,
+        sourceTime: item.updated || data.updated || null,
+        unit: "gram",
+        currency: "USD",
+        quoteType: "direct",
+      });
+    })
+    .filter(Boolean);
+}
+
+async function providerMetalCharts(requested = [], env = {}) {
+  const metals = {
+    gold: { symbol: "XAU", factor: 0.75, divisor: TROY_OUNCE_TO_GRAMS },
+    silver: { symbol: "XAG", factor: 1, divisor: TROY_OUNCE_TO_GRAMS },
+    platinum: { symbol: "XPT", factor: 1, divisor: TROY_OUNCE_TO_GRAMS },
+    palladium: { symbol: "XPD", factor: 1, divisor: TROY_OUNCE_TO_GRAMS },
+    copper: { symbol: "HG", factor: 1, divisor: 453.59237 },
+  };
+  const selected = Object.entries(metals).filter(([asset]) => requested.includes(asset));
+  if (!selected.length) return { quotes: [], cacheStatus: "skipped" };
+  const apiKey = typeof env?.METALCHARTS_API_KEY === "string" ? env.METALCHARTS_API_KEY.trim() : "";
+  if (!apiKey) throw new Error("metalcharts-key-missing");
+  if (!hasDurableSessionSecurity(env)) throw new Error("platform-key-security-not-configured");
+
+  const fetchQuotes = async () => {
+    const data = await fetchJson(METALCHARTS_PRICE_URL, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      cf: { cacheTtl: 0, cacheEverything: false },
+    });
+    if (data?.success !== true || !data?.data || typeof data.data !== "object")
+      throw new Error("MetalCharts returned an unexpected quote payload");
+    return selected
+      .map(([asset, metal]) => {
+        const item = data.data[metal.symbol];
+        if (item?.symbol !== metal.symbol) return null;
+        const usd = parseNumber(item.price);
+        if (!isPositiveNumber(usd)) return null;
+        return quote(asset, (usd * metal.factor) / metal.divisor, "MetalCharts", {
+          changePct: parseNumber(item.changePercent24h),
+          sourceUrl: METALCHARTS_PRICE_URL,
+          sourceTime: item.timestamp || data.timestamp || null,
+          unit: "gram",
+          currency: "USD",
+          quoteType: "direct",
+          cacheStale: item.stale === true || data.isStale === true,
+        });
+      })
+      .filter(Boolean);
+  };
+
+  return await loadPlatformProviderQuotes(env, "metalcharts", {
+    maxAgeMs: 30_000,
+    maxStaleMs: 5 * 60_000,
+    monthlyLimit: 180,
+    minimumIntervalSeconds: 60,
+    fetchQuotes,
+  });
+}
+
+async function providerTindexIndex(env = {}) {
+  const apiKey = typeof env?.TINDEX_API_KEY === "string" ? env.TINDEX_API_KEY.trim() : "";
+  if (!apiKey) throw new Error("tindex-key-missing");
+  if (!hasDurableSessionSecurity(env)) throw new Error("platform-key-security-not-configured");
+
+  const fetchQuotes = async () => {
+    const payload = await fetchJson(TINDEX_BOARDS_URL, {
+      headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
+      cf: { cacheTtl: 0, cacheEverything: false },
+    });
+    if (payload?.success !== true || !Array.isArray(payload.data))
+      throw new Error("Tindex returned an unexpected board payload");
+    const market = payload.data.find((board) => board?.key === "market" || board?.categorySlug === "stock-energy");
+    const row = market?.rows?.find((item) => String(item?.slug || "").toUpperCase() === "TEDPIX");
+    const price = parseNumber(row?.price);
+    if (!isPositiveNumber(price)) return [];
+    return [
+      quote("bourseIndex", price, "Tindex", {
+        sourceUrl: TINDEX_BOARDS_URL,
+        sourceTime: row.updated_at || null,
+        unit: "point",
+        currency: "INDEX",
+        quoteType: "direct",
+      }),
+    ];
+  };
+
+  return await loadPlatformProviderQuotes(env, "tindex", {
+    maxAgeMs: 15 * 60_000,
+    maxStaleMs: 30 * 60_000,
+    monthlyLimit: 2400,
+    minimumIntervalSeconds: 60,
+    fetchQuotes,
+  });
 }
 
 async function providerYahooMetals(requested = ["platinum", "palladium", "copper"]) {
@@ -1196,12 +1366,40 @@ export async function onRequestGet(context = {}) {
     {
       id: "goldApi",
       run: () => providerGoldApi([...selected]),
-      assetIds: [...selected].filter((asset) => ["gold", "silver", "platinum", "palladium", "bitcoin", "ethereum"].includes(asset)),
-      enabled: wantsAny("gold", "silver", "platinum", "palladium", "bitcoin", "ethereum"),
+      assetIds: [...selected].filter((asset) =>
+        ["gold", "silver", "platinum", "palladium", "copper", "bitcoin", "ethereum"].includes(asset),
+      ),
+      enabled: wantsAny("gold", "silver", "platinum", "palladium", "copper", "bitcoin", "ethereum"),
       localOnly: true,
     },
     {
+      id: "goldPrice",
+      run: () => providerGoldPrice([...selected]),
+      assetIds: [...selected].filter((asset) => ["gold", "silver", "platinum", "palladium"].includes(asset)),
+      enabled: wantsAny("gold", "silver", "platinum", "palladium"),
+      localOnly: true,
+    },
+    {
+      id: "standardBullion",
+      run: () => providerStandardBullion([...selected]),
+      assetIds: [...selected].filter((asset) => ["gold", "silver", "platinum", "palladium"].includes(asset)),
+      enabled: wantsAny("gold", "silver", "platinum", "palladium"),
+      localOnly: true,
+    },
+    {
+      id: "metalCharts",
+      optional: true,
+      run: () => providerMetalCharts([...selected], context.env),
+      assetIds: [...selected].filter((asset) => ["gold", "silver", "platinum", "palladium", "copper"].includes(asset)),
+      enabled:
+        typeof context.env?.METALCHARTS_API_KEY === "string" &&
+        context.env.METALCHARTS_API_KEY.trim().length > 0 &&
+        hasDurableSessionSecurity(context.env) &&
+        wantsAny("gold", "silver", "platinum", "palladium", "copper"),
+    },
+    {
       id: "yahooMetals",
+      optional: true,
       run: () => providerYahooMetals([...selected]),
       assetIds: [...selected].filter((asset) => ["platinum", "palladium", "copper"].includes(asset)),
       enabled: context.env?.YAHOO_METALS_LICENSE_CONFIRMED === "true" && wantsAny("platinum", "palladium", "copper"),
@@ -1221,8 +1419,21 @@ export async function onRequestGet(context = {}) {
       enabled: selected.has("bourseIndex"),
       localOnly: true,
     },
-  ].filter((provider) => provider.enabled);
-  const activeDefinitions = [...primaryDefinitions, ...extendedDefinitions];
+    {
+      id: "tindex",
+      optional: true,
+      run: () => providerTindexIndex(context.env),
+      assetIds: selected.has("bourseIndex") ? ["bourseIndex"] : [],
+      enabled:
+        selected.has("bourseIndex") &&
+        typeof context.env?.TINDEX_API_KEY === "string" &&
+        context.env.TINDEX_API_KEY.trim().length > 0 &&
+        context.env?.TINDEX_USE_CONFIRMED === "true" &&
+        hasDurableSessionSecurity(context.env),
+      localOnly: true,
+    },
+  ];
+  const activeDefinitions = [...primaryDefinitions, ...extendedDefinitions.filter((provider) => provider.enabled)];
   const providerRuns = activeDefinitions.map(async (provider) => {
     const result = await provider.run();
     return {
@@ -1278,11 +1489,13 @@ export async function onRequestGet(context = {}) {
     "kraken",
     "metalsLive",
     "goldApi",
+    "goldPrice",
+    "standardBullion",
     "yahooMetals",
   ].flatMap((id) => {
-      const result = providerResults.get(id);
-      return result?.status === "fulfilled" ? result.value.quotes : [];
-    });
+    const result = providerResults.get(id);
+    return result?.status === "fulfilled" ? result.value.quotes : [];
+  });
   const directLocalQuotes = ["nobitex"].flatMap((id) => {
     const result = providerResults.get(id);
     return result?.status === "fulfilled" ? result.value.quotes : [];
@@ -1361,7 +1574,10 @@ export async function onRequestGet(context = {}) {
   [...providers, ...extendedDefinitions].forEach((provider) => {
     const settled = providerResults.get(provider.id);
     if (!settled) {
-      providerDiagnostics[provider.id] = { status: "skipped", quoteCount: 0 };
+      providerDiagnostics[provider.id] = {
+        status: provider.optional && provider.assetIds?.length ? "not_configured" : "skipped",
+        quoteCount: 0,
+      };
       return;
     }
     providerDiagnostics[provider.id] = {
@@ -1489,10 +1705,14 @@ export async function onRequestGet(context = {}) {
         { id: "coinbase", name: "Coinbase public ticker", url: "https://api.exchange.coinbase.com/products/" },
         { id: "kraken", name: "Kraken public ticker", url: KRAKEN_TICKER_URL },
         { id: "goldApi", name: "Gold API", url: GOLD_API_PRICE_BASE },
+        { id: "goldPrice", name: "GoldPrice.com", url: "https://goldprice.com/widgets" },
+        { id: "standardBullion", name: "Standard Bullion", url: "https://standardbullion.com/market-data" },
+        { id: "metalCharts", name: "MetalCharts", url: "https://metalcharts.org/" },
         { id: "metalsLive", name: "Metals.live", url: METALS_LIVE_URL },
         { id: "yahooMetals", name: "Yahoo Finance futures chart", url: YAHOO_METAL_CHART_BASE },
         { id: "tsetmc", name: "TSETMC", url: TSETMC_INDEX_URL },
         { id: "tgjuIndex", name: "TGJU Tehran general index", url: TGJU_BASE + "gc30" },
+        { id: "tindex", name: "Tindex", url: TINDEX_BOARDS_URL },
       ],
       fixedIncome: "https://charisma.ir/",
       history: "https://www.tgju.org/",
