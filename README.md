@@ -6,15 +6,15 @@
 
 <p align="center"><strong>Transparent investing decisions, built in your browser.</strong></p>
 
+<p align="center">Synthora is a free, transparent, browser-first investment planning tool for conservative personal portfolios in Iran.</p>
+
+<p align="center"><a href="https://synthora.negar.team/" target="_blank" rel="noopener noreferrer">Open the platform</a></p>
+
 <p align="center">
-  <a href="https://www.producthunt.com/products/synthora" target="_blank" rel="noopener noreferrer">
-    <img src="https://img.shields.io/badge/Product%20Hunt-View%20Synthora-DA552F?logo=producthunt&logoColor=white" alt="View Synthora on Product Hunt" />
+  <a href="https://www.producthunt.com/products/synthora?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-synthora" target="_blank" rel="noopener noreferrer">
+    <img src="https://img.shields.io/badge/Product%20Hunt-View%20Synthora-DA552F?logo=producthunt&amp;logoColor=white" alt="View Synthora on Product Hunt" />
   </a>
 </p>
-
-<p align="center"><a href="https://synthora.negar.team/">Visit Synthora</a></p>
-
-`Synthora` is a free, transparent, browser-first investment planning tool for conservative personal portfolios in Iran.
 
 It is a mathematical decision-support engine. It does not use an AI model to predict markets, make promises, or generate opaque recommendations.
 
