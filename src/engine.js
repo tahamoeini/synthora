@@ -1263,6 +1263,45 @@ function pathMetrics(
   };
 }
 
+function monthlyCoverageRanges(rows, assets) {
+  const ranges = [];
+  let run = null;
+  rows.forEach((row) => {
+    const previous = run?.months.at(-1);
+    const [year, month] = row.month.split("-").map(Number);
+    const [previousYear, previousMonth] = (previous || "").split("-").map(Number);
+    const adjacent = previous && year * 12 + month === previousYear * 12 + previousMonth + 1;
+    if (!assets.every((asset) => row.observed[asset])) {
+      if (run) ranges.push(run);
+      run = null;
+      return;
+    }
+    if (!run || !adjacent) {
+      if (run) ranges.push(run);
+      run = { start: row.month, end: row.month, months: [row.month] };
+      return;
+    }
+    run.end = row.month;
+    run.months.push(row.month);
+  });
+  if (run) ranges.push(run);
+  return ranges.map(({ start, end, months: coveredMonths }) => ({ start, end, months: coveredMonths.length }));
+}
+
+function backtestCoverage(historical, requiredAssets) {
+  const byAsset = Object.fromEntries(
+    requiredAssets.map((asset) => [asset, monthlyCoverageRanges(historical.rows, [asset])]),
+  );
+  const joint = monthlyCoverageRanges(historical.rows, requiredAssets);
+  return {
+    frequency: "monthly",
+    requiredAssets,
+    rangesByAsset: byAsset,
+    jointRanges: joint,
+    longestContinuousMonths: Math.max(0, ...joint.map((range) => range.months)),
+  };
+}
+
 export function backtestHistorical(options = {}) {
   const assumptions = options.assumptions || DEFAULT_ASSUMPTIONS;
   const historical = buildHistoricalReturns(options.market, assumptions);
@@ -1276,9 +1315,8 @@ export function backtestHistorical(options = {}) {
   const monthlyMar = annualMar === null ? null : annualToMonthlyRate(annualMar);
   const requiredAssets = ASSET_KEYS.filter((asset) => allocation[asset] > EPSILON);
   const horizon = requestedMonths;
-  const unobservedAssets = requiredAssets.filter(
-    (asset) => !historical.rows.length || historical.rows.some((row) => !row.observed[asset]),
-  );
+  const coverageDetail = backtestCoverage(historical, requiredAssets);
+  const unobservedAssets = requiredAssets.filter((asset) => !historical.assetMetadata[asset]?.returnObservations);
   if (historical.rows.length < horizon)
     return {
       available: false,
@@ -1286,7 +1324,9 @@ export function backtestHistorical(options = {}) {
       observations: historical.rows.length,
       requiredMonths: horizon,
       coverage: historical.coverage,
+      ...coverageDetail,
       unobservedAssets,
+      historyFetchError: historical.historyFetchError,
       estimated: false,
     };
   const periods = [];
@@ -1348,7 +1388,10 @@ export function backtestHistorical(options = {}) {
       observations: historical.rows.length,
       requiredMonths: horizon,
       coverage: historical.coverage,
+      ...coverageDetail,
       unobservedAssets,
+      reason: coverageDetail.longestContinuousMonths < horizon ? "insufficient-continuous-overlap" : "no-valid-window",
+      historyFetchError: historical.historyFetchError,
       estimated: false,
     };
   const best = periods.slice().sort((left, right) => (right.cagr ?? -Infinity) - (left.cagr ?? -Infinity))[0];
@@ -1357,6 +1400,8 @@ export function backtestHistorical(options = {}) {
     available: periods.length > 0,
     observations: historical.rows.length,
     coverage: historical.coverage,
+    ...coverageDetail,
+    historyFetchError: historical.historyFetchError,
     estimated: false,
     referenceAnnualReturn: currentFixedReturn(options.market),
     horizonMonths: horizon,
@@ -1403,17 +1448,37 @@ export function contributionRebalance(
       ? DEFAULT_REBALANCE_THRESHOLD_PERCENT
       : Number(configuredThreshold),
   );
-  if (currentTotal <= EPSILON)
+  const resultFor = (amounts, usesTargetDrift) => {
+    const amountTotal = sum(assetKeys.map((asset) => Number(amounts[asset]) || 0));
+    const residual = contribution - amountTotal;
+    const recipient = [...assetKeys].reverse().find((asset) => Number(amounts[asset]) > EPSILON) || assetKeys.at(-1);
+    if (recipient && Number.isFinite(residual)) amounts[recipient] = (Number(amounts[recipient]) || 0) + residual;
+    const finalTotal = sum(assetKeys.map((asset) => Number(amounts[asset]) || 0));
+    const contributionWeights = Object.fromEntries(
+      assetKeys.map((asset) => [asset, finalTotal > EPSILON ? ((Number(amounts[asset]) || 0) / finalTotal) * 100 : 0]),
+    );
     return {
-      amounts: assetKeys.reduce((result, asset) => ({ ...result, [asset]: (contribution * target[asset]) / 100 }), {}),
-      weights: contribution > EPSILON ? target : Object.fromEntries(assetKeys.map((asset) => [asset, 0])),
+      amounts,
+      contributionAmounts: amounts,
+      weights: contributionWeights,
+      contributionWeights,
+      targetWeights: target,
+      contributionBudget: contribution,
+      amountRoundingRule: "Amounts reconcile to the full-precision budget before display rounding.",
       current,
       currentTotal,
       currentWeights,
       drift,
+      deviationPercentagePoints: drift,
       driftThreshold,
-      usesTargetDrift: false,
+      usesTargetDrift,
     };
+  };
+  if (currentTotal <= EPSILON)
+    return resultFor(
+      assetKeys.reduce((result, asset) => ({ ...result, [asset]: (contribution * target[asset]) / 100 }), {}),
+      false,
+    );
 
   const targetWeightedBuyRate = sum(
     assetKeys.map((asset) => (target[asset] / 100) * configuredFeeRate(options.transactionCosts, asset, "buyFee")),
@@ -1456,19 +1521,7 @@ export function contributionRebalance(
       amounts[asset] = grossDeficits[asset] + (remainingContribution * target[asset]) / 100;
     });
   }
-  return {
-    amounts,
-    weights:
-      contribution > EPSILON
-        ? normalizeAllocation(amounts, target, assetKeys)
-        : Object.fromEntries(assetKeys.map((asset) => [asset, 0])),
-    current,
-    currentTotal,
-    currentWeights,
-    drift,
-    driftThreshold,
-    usesTargetDrift,
-  };
+  return resultFor(amounts, usesTargetDrift);
 }
 
 function correlatedDraws(model, covariance, random, assets = ASSET_KEYS) {

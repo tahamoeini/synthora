@@ -1,11 +1,40 @@
 // @ts-check
 
 import { clamp, normalizeAllocation } from "./engine.js";
-import { OPTIONAL_RECOMMENDATION_ASSETS, PLAN_ASSET_KEYS } from "./market/catalog.js";
+import { OPTIONAL_RECOMMENDATION_ASSETS, PLAN_ASSET_KEYS, SIMULATION_ASSET_KEYS } from "./market/catalog.js";
 import { PORTFOLIO_SCHEMA, PORTFOLIO_VERSION, normalizePortfolio, validateImportedPortfolio } from "./portfolio.js";
 
 export const HISTORY_SCHEMA = "invest-consult-history";
-export const HISTORY_VERSION = 3;
+export const HISTORY_VERSION = 4;
+export const PLAN_RECORD_VERSION = 1;
+export const PERSONAL_BACKUP_SCHEMA = "synthora-personal-backup";
+export const PERSONAL_BACKUP_VERSION = 1;
+
+const PERSONAL_PROFILE_FIELDS = new Set([
+  "age",
+  "horizonYears",
+  "goal",
+  "riskTolerance",
+  "incomeStability",
+  "emergencyFund",
+  "emergencyCoverageMonths",
+  "essentialMonthlyExpenses",
+  "salary",
+  "contributionRate",
+]);
+const MODEL_SETTING_FIELDS = new Set([
+  "version",
+  "inflationRate",
+  "contributionGrowth",
+  "paths",
+  "rebalance",
+  "targetDriftThresholdPercent",
+  "assumptions",
+  "transactionCosts",
+  "inflationSource",
+  "inflationPeriod",
+  "inflationFetchedAt",
+]);
 
 const MARKET_ASSETS = [
   "dollar",
@@ -168,6 +197,26 @@ function sanitizeAmounts(amounts) {
   return Object.keys(result).length ? result : undefined;
 }
 
+function sanitizePercentMap(values, { normalize = false } = {}) {
+  if (!values || typeof values !== "object") return undefined;
+  const result = {};
+  PLAN_ASSET_KEYS.forEach((key) => {
+    const value = finite(values[key]);
+    if (value !== null && value >= 0) result[key] = Math.min(100, value);
+  });
+  const total = PLAN_ASSET_KEYS.reduce((sum, key) => sum + (result[key] || 0), 0);
+  if (!total) return Object.keys(result).length ? result : undefined;
+  if (normalize) return normalizeAllocation(result, undefined, PLAN_ASSET_KEYS);
+  return result;
+}
+
+function weightsForAmounts(amounts) {
+  if (!amounts) return undefined;
+  const total = PLAN_ASSET_KEYS.reduce((sum, key) => sum + (Number(amounts[key]) || 0), 0);
+  if (!(total > 0)) return Object.fromEntries(PLAN_ASSET_KEYS.map((key) => [key, 0]));
+  return Object.fromEntries(PLAN_ASSET_KEYS.map((key) => [key, ((Number(amounts[key]) || 0) / total) * 100]));
+}
+
 function sanitizeSelectedAssets(assets) {
   if (!Array.isArray(assets)) return [];
   return [...new Set(assets.filter((assetId) => OPTIONAL_RECOMMENDATION_ASSETS.includes(assetId)))];
@@ -180,25 +229,46 @@ function sanitizeSelectedAssets(assets) {
 export function sanitizeHistoryEntry(entry) {
   if (!entry || typeof entry !== "object") return null;
   const createdAt = validDate(entry.createdAt);
-  const total = finite(entry.total);
+  const total = finite(entry.plannedMonthlyAmount ?? entry.total);
   const contributionRate = finite(entry.contributionRate ?? entry.rate);
-  const rawWeights = entry.weights && typeof entry.weights === "object" ? entry.weights : null;
+  const rawWeights = entry.targetWeights || (entry.weights && typeof entry.weights === "object" ? entry.weights : null);
   if (!createdAt || total === null || total <= 0 || contributionRate === null || !rawWeights) return null;
   const rawWeightTotal = PLAN_ASSET_KEYS.reduce((sum, key) => sum + Math.max(0, finite(rawWeights[key]) || 0), 0);
   if (rawWeightTotal <= 0) return null;
 
   const result = {
+    id: typeof entry.id === "string" && entry.id.length <= 120 ? entry.id : `plan-${createdAt}`,
+    recordVersion: PLAN_RECORD_VERSION,
+    planVersion:
+      Number.isInteger(Number(entry.planVersion)) && Number(entry.planVersion) > 0 ? Number(entry.planVersion) : 1,
     createdAt,
+    plannedMonthlyAmount: total,
+    // Keep `total` and `weights` for older local consumers and exports.
     total,
     contributionRate: clamp(contributionRate, 0, 100),
     weights: normalizeAllocation(rawWeights, undefined, PLAN_ASSET_KEYS),
+    executionStatus: "not-linked",
   };
+  result.targetWeights = result.weights;
   const selectedAssets = sanitizeSelectedAssets(entry.selectedAssets);
   if (selectedAssets.length) result.selectedAssets = selectedAssets;
   const salary = finite(entry.salary);
   if (salary !== null && salary >= 0) result.salary = salary;
-  const contributionPlan = sanitizeAmounts(entry.contributionPlan);
-  if (contributionPlan) result.contributionPlan = contributionPlan;
+  const contributionPlan = sanitizeAmounts(entry.contributionAmounts ?? entry.contributionPlan);
+  if (contributionPlan) {
+    result.contributionAmounts = contributionPlan;
+    result.contributionPlan = contributionPlan;
+    result.contributionWeights =
+      sanitizePercentMap(entry.contributionWeights) || weightsForAmounts(contributionPlan);
+  }
+  const currentWeights = sanitizePercentMap(entry.currentWeights);
+  if (currentWeights) result.currentWeights = currentWeights;
+  const deviations = {};
+  PLAN_ASSET_KEYS.forEach((key) => {
+    const value = finite(entry.deviationPercentagePoints?.[key]);
+    if (value !== null && value >= -100 && value <= 100) deviations[key] = value;
+  });
+  if (Object.keys(deviations).length) result.deviationPercentagePoints = deviations;
   const profile = sanitizeProfile(entry.profile);
   if (profile) result.profile = profile;
   const marketSnapshot = sanitizeSnapshot(entry.marketSnapshot, createdAt);
@@ -206,13 +276,42 @@ export function sanitizeHistoryEntry(entry) {
   return result;
 }
 
+export function createPlanHistoryRecord(plan, existingHistory = [], createdAt = new Date().toISOString()) {
+  const version = Math.max(0, ...(Array.isArray(existingHistory) ? existingHistory : []).map((entry) => Number(entry?.planVersion) || 0)) + 1;
+  const cryptoApi = globalThis.crypto;
+  const id =
+    typeof cryptoApi?.randomUUID === "function"
+      ? `plan-${cryptoApi.randomUUID()}`
+      : `plan-${new Date(createdAt).getTime()}-${version}`;
+  const { inputs, recommendation, contribution } = plan || {};
+  if (!inputs || !recommendation || !contribution) return null;
+  return sanitizeHistoryEntry({
+    id,
+    recordVersion: PLAN_RECORD_VERSION,
+    planVersion: version,
+    createdAt,
+    plannedMonthlyAmount: inputs.monthlyContribution,
+    contributionRate: inputs.contributionRate,
+    targetWeights: recommendation.weights,
+    contributionAmounts: contribution.contributionAmounts || contribution.amounts,
+    contributionWeights: contribution.contributionWeights || contribution.weights,
+    currentWeights: contribution.currentWeights,
+    deviationPercentagePoints: contribution.deviationPercentagePoints || contribution.drift,
+    executionStatus: "not-linked",
+    profile: inputs.profile,
+    selectedAssets: inputs.selectedAssets,
+    salary: inputs.salary,
+    marketSnapshot: plan.marketSnapshot,
+  });
+}
+
 export function normalizeHistoryEntries(entries, limit = 60) {
   const seen = new Set();
   const result = [];
   (Array.isArray(entries) ? entries : []).forEach((entry) => {
     const normalized = sanitizeHistoryEntry(entry);
-    if (!normalized || seen.has(normalized.createdAt)) return;
-    seen.add(normalized.createdAt);
+    if (!normalized || seen.has(normalized.id)) return;
+    seen.add(normalized.id);
     result.push(normalized);
   });
   return Number.isFinite(limit) ? result.slice(0, Math.max(0, limit)) : result;
@@ -271,5 +370,128 @@ export function parseHistoryExport(value) {
     version: Number(data.version) || HISTORY_VERSION,
     currencyUnit: data.currencyUnit === "TOMAN" ? "TOMAN" : "RIAL_LEGACY",
     portfolio,
+  };
+}
+
+function sanitizePersonalProfile(profile, { strict = true } = {}) {
+  if (profile === null) return null;
+  if (!profile || typeof profile !== "object" || Array.isArray(profile)) throw new Error("invalid-profile-format");
+  if (strict && Object.keys(profile).some((key) => !PERSONAL_PROFILE_FIELDS.has(key)))
+    throw new Error("invalid-profile-format");
+  const result = {};
+  Object.entries(profile).forEach(([key, value]) => {
+    if (!PERSONAL_PROFILE_FIELDS.has(key)) return;
+    if (typeof value === "string") {
+      if (value.length > 120) throw new Error("invalid-profile-format");
+      result[key] = value;
+      return;
+    }
+    if (value !== null && !Number.isFinite(Number(value))) throw new Error("invalid-profile-format");
+    result[key] = value === null ? null : Number(value);
+  });
+  return result;
+}
+
+function validateModelSettings(settings) {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) throw new Error("invalid-settings-format");
+  if (Object.keys(settings).some((key) => !MODEL_SETTING_FIELDS.has(key))) throw new Error("invalid-settings-format");
+  const rate = finite(settings.inflationRate);
+  const growth = finite(settings.contributionGrowth);
+  const drift = finite(settings.targetDriftThresholdPercent);
+  if (
+    Number(settings.version) !== 3 ||
+    rate === null || rate < -0.2 || rate > 3 ||
+    growth === null || growth < -0.5 || growth > 2 ||
+    ![1000, 2000, 5000, 10000].includes(Number(settings.paths)) ||
+    typeof settings.rebalance !== "boolean" ||
+    drift === null || drift < 0 || drift > 25 ||
+    !settings.assumptions || typeof settings.assumptions !== "object" || Array.isArray(settings.assumptions) ||
+    !settings.transactionCosts || typeof settings.transactionCosts !== "object" || Array.isArray(settings.transactionCosts)
+  ) throw new Error("invalid-settings-format");
+  SIMULATION_ASSET_KEYS.forEach((assetId) => {
+    const assumption = settings.assumptions[assetId];
+    const costs = settings.transactionCosts[assetId];
+    const annualReturn = finite(assumption?.annualReturn);
+    const annualVolatility = finite(assumption?.annualVolatility);
+    if (
+      !assumption || typeof assumption !== "object" || Array.isArray(assumption) ||
+      Object.keys(assumption).some((key) => !["annualReturn", "annualVolatility"].includes(key)) ||
+      annualReturn === null || annualReturn < -0.99 || annualReturn > 3 || annualVolatility === null || annualVolatility < 0 || annualVolatility > 3
+    )
+      throw new Error("invalid-settings-format");
+    if (
+      !costs || typeof costs !== "object" || Array.isArray(costs) ||
+      Object.keys(costs).some((key) => !["buyFee", "sellFee", "spread"].includes(key))
+    ) throw new Error("invalid-settings-format");
+    ["buyFee", "sellFee", "spread"].forEach((key) => {
+      const fee = costs[key];
+      if (fee !== null && (finite(fee) === null || Number(fee) < 0 || Number(fee) > 0.99))
+        throw new Error("invalid-settings-format");
+    });
+  });
+  if (
+    Object.keys(settings.assumptions).some((assetId) => !SIMULATION_ASSET_KEYS.includes(assetId)) ||
+    Object.keys(settings.transactionCosts).some((assetId) => !SIMULATION_ASSET_KEYS.includes(assetId)) ||
+    SIMULATION_ASSET_KEYS.some((assetId) => !Object.hasOwn(settings.assumptions, assetId) || !Object.hasOwn(settings.transactionCosts, assetId))
+  ) throw new Error("invalid-settings-format");
+  if (
+    (settings.inflationSource !== null && typeof settings.inflationSource !== "string") ||
+    (settings.inflationPeriod !== null && typeof settings.inflationPeriod !== "string") ||
+    (settings.inflationFetchedAt !== null && (typeof settings.inflationFetchedAt !== "string" || !validDate(settings.inflationFetchedAt)))
+  ) throw new Error("invalid-settings-format");
+  return settings;
+}
+
+function validatePersonalPreferences(preferences) {
+  if (!preferences || typeof preferences !== "object" || Array.isArray(preferences))
+    throw new Error("invalid-preferences-format");
+  if (
+    Object.keys(preferences).some((key) => !["locale", "currency", "theme"].includes(key)) ||
+    !["fa", "en", "ru", "zh"].includes(preferences.locale) ||
+    ![null, "TOMAN", "USD", "RUB", "CNY"].includes(preferences.currency) ||
+    !["system", "light", "dark"].includes(preferences.theme)
+  ) throw new Error("invalid-preferences-format");
+  return { locale: preferences.locale, currency: preferences.currency, theme: preferences.theme };
+}
+
+export function createPersonalBackup({ profile, history, portfolio, modelSettings, preferences }) {
+  const records = normalizeHistoryEntries(history, Infinity);
+  const validatedPortfolio = validateImportedPortfolio(portfolio);
+  if (!validatedPortfolio.valid) throw new Error("invalid-portfolio-ledger");
+  const safeSettings = validateModelSettings(modelSettings);
+  const safePreferences = validatePersonalPreferences(preferences);
+  return {
+    schema: PERSONAL_BACKUP_SCHEMA,
+    version: PERSONAL_BACKUP_VERSION,
+    currencyUnit: "TOMAN",
+    exportedAt: new Date().toISOString(),
+    profile: sanitizePersonalProfile(profile, { strict: false }),
+    history: records,
+    portfolio: validatedPortfolio.portfolio,
+    modelSettings: safeSettings,
+    preferences: safePreferences,
+  };
+}
+
+export function parsePersonalBackup(value) {
+  if (
+    !value || typeof value !== "object" || Array.isArray(value) ||
+    value.schema !== PERSONAL_BACKUP_SCHEMA || Number(value.version) !== PERSONAL_BACKUP_VERSION ||
+    value.currencyUnit !== "TOMAN" || !Array.isArray(value.history)
+  ) throw new Error("invalid-personal-backup-format");
+  const history = normalizeHistoryEntries(value.history, Infinity);
+  if (history.length !== value.history.length) throw new Error("invalid-history-format");
+  const portfolio = validateImportedPortfolio(value.portfolio);
+  if (!portfolio.valid) throw new Error("invalid-portfolio-ledger");
+  const exportedAt = validDate(value.exportedAt);
+  if (!exportedAt) throw new Error("invalid-personal-backup-format");
+  return {
+    profile: sanitizePersonalProfile(value.profile),
+    history,
+    portfolio: portfolio.portfolio,
+    modelSettings: validateModelSettings(value.modelSettings),
+    preferences: validatePersonalPreferences(value.preferences),
+    exportedAt,
+    version: Number(value.version),
   };
 }

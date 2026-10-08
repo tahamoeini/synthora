@@ -4,7 +4,9 @@ import { realValue } from "./engine.js";
 import { INSTRUMENT_REGISTRY, SLEEVE_REGISTRY } from "./market/catalog.js";
 
 export const PORTFOLIO_SCHEMA = "invest-consult-portfolio";
-export const PORTFOLIO_VERSION = 2;
+export const PORTFOLIO_VERSION = 3;
+export const REPORTING_CALENDAR = "gregory";
+export const REPORTING_TIME_ZONE = "UTC";
 export const TRANSACTION_TYPES = [
   "OPENING",
   "BUY",
@@ -12,6 +14,7 @@ export const TRANSACTION_TYPES = [
   "DIVIDEND",
   "TRANSFER",
   "ADJUSTMENT",
+  "BASIS_CORRECTION",
   "DEPOSIT",
   "WITHDRAWAL",
 ];
@@ -202,12 +205,23 @@ function normalizeTransaction(raw, assets = PORTFOLIO_ASSETS) {
   const quantity = finite(raw.quantity);
   const unitPrice = finite(raw.unitPrice);
   const amount = finite(raw.amount);
+  const costBasisStatus =
+    raw.type === "BASIS_CORRECTION"
+      ? "confirmed"
+      : ["confirmed", "estimated", "unknown"].includes(raw.costBasisStatus)
+        ? raw.costBasisStatus
+        : "unknown";
   if (!assetId && raw.type !== "DEPOSIT" && raw.type !== "WITHDRAWAL") return null;
-  if (["OPENING", "BUY", "SELL", "TRANSFER"].includes(raw.type) && (quantity === null || quantity <= EPSILON))
+  if (["OPENING", "BUY", "SELL", "TRANSFER", "BASIS_CORRECTION"].includes(raw.type) && (quantity === null || quantity <= EPSILON))
     return null;
   if (raw.type === "ADJUSTMENT" && (quantity === null || Math.abs(quantity) <= EPSILON)) return null;
-  if (["OPENING", "BUY", "SELL", "ADJUSTMENT"].includes(raw.type) && (unitPrice === null || unitPrice <= 0))
+  if (
+    (raw.type === "SELL" && (unitPrice === null || unitPrice <= 0)) ||
+    (raw.type === "ADJUSTMENT" && (unitPrice === null || unitPrice <= 0) && costBasisStatus !== "unknown") ||
+    (["OPENING", "BUY"].includes(raw.type) && unitPrice === null && costBasisStatus !== "unknown")
+  )
     return null;
+  if (raw.type === "BASIS_CORRECTION" && (amount === null || amount <= 0)) return null;
   if (["DEPOSIT", "WITHDRAWAL", "DIVIDEND"].includes(raw.type) && (amount === null || amount <= 0)) return null;
   if (
     raw.type === "TRANSFER" &&
@@ -225,6 +239,8 @@ function normalizeTransaction(raw, assets = PORTFOLIO_ASSETS) {
     targetQuantity: raw.type === "TRANSFER" ? finite(raw.targetQuantity) : undefined,
     quantity: quantity === null ? undefined : quantity,
     unitPrice: unitPrice === null ? undefined : unitPrice,
+    trackingValue: finite(raw.trackingValue),
+    costBasisStatus,
     targetUnitPrice: raw.type === "TRANSFER" ? finite(raw.targetUnitPrice) : undefined,
     amount: amount === null ? undefined : amount,
     fee: Math.max(0, finite(raw.fee) || 0),
@@ -501,6 +517,51 @@ function seriesPointValue(point) {
   };
 }
 
+function quoteQualityDetails({ assetId, definition, market, current, price, source, observedAt, retrievedAt, isManual, sourceKind, asOf }) {
+  const rejectedConflict = current?.status === "conflicted";
+  const shared = {
+    eligible: Number.isFinite(Number(price)) && Number(price) > 0,
+    rejectedConflict,
+    source,
+    observedAt,
+    retrievedAt,
+    status: current?.status || (sourceKind === "history" ? "healthy" : "unavailable"),
+    confidence: current?.confidence || (sourceKind === "history" ? "high" : "none"),
+    quoteType: current?.quoteType || definition?.quoteType || null,
+    sourceCount: Number(current?.sourceCount) || 0,
+    configuredSourceCount: Number(current?.configuredSourceCount) || 0,
+    spreadPct: finite(current?.spreadPct),
+    acceptedSpreadPct: finite(current?.acceptedSpreadPct),
+    dependencies: Array.isArray(current?.dependencies) ? current.dependencies : [],
+  };
+  if (!shared.eligible) return { ...shared, qualityState: rejectedConflict ? "rejected-conflict" : "unavailable" };
+  if (sourceKind === "tracking-value") return { ...shared, qualityState: "accepted" };
+  const observedTime = observedAt ? Date.parse(observedAt) : NaN;
+  const asOfTime = Date.parse(asOf);
+  const freshnessWindowMs = ["bitcoin", "ethereum", "tether"].includes(assetId) ? 15 * 60_000 : 3 * 60 * 60_000;
+  const stale =
+    current?.status === "stale" ||
+    current?.cacheStale === true ||
+    market?._clientStale === true ||
+    (Number.isFinite(observedTime) && Number.isFinite(asOfTime) && asOfTime - observedTime > freshnessWindowMs);
+  const partialCoverage =
+    Number(current?.configuredSourceCount) > 0 &&
+    Number(current?.sourceCount) < Number(current.configuredSourceCount);
+  const estimated =
+    sourceKind !== "history" &&
+    (current?.status !== "healthy" ||
+      current?.confidence !== "high" ||
+      ["derived", "mixed"].includes(current?.quoteType) ||
+      current?.consensusDisagreement === true ||
+      Number(current?.unknownObservationCount) > 0 ||
+      !Number.isFinite(observedTime) ||
+      partialCoverage);
+  return {
+    ...shared,
+    qualityState: stale ? "stale" : isManual ? "manual" : estimated ? "accepted-estimate" : "accepted",
+  };
+}
+
 export function marketPriceDetailsAt(market, assetId, asOf = new Date().toISOString()) {
   const definition =
     assetDefinition(assetId) ||
@@ -515,22 +576,40 @@ export function marketPriceDetailsAt(market, assetId, asOf = new Date().toISOStr
     .filter((quote) => quote && quoteAssetIds.has(quote.assetId) && new Date(quote.observedAt).getTime() <= timestamp)
     .sort((left, right) => new Date(left.observedAt).getTime() - new Date(right.observedAt).getTime());
   const latestManual = manualQuotes.at(-1) || null;
+  const current = definition.marketKey ? market?.assets?.[definition.marketKey] : null;
+  const withQuality = (quote, sourceKind) =>
+    quote
+      ? {
+          ...quote,
+          ...quoteQualityDetails({
+            assetId,
+            definition,
+            market,
+            current,
+            sourceKind,
+            asOf,
+            ...quote,
+          }),
+        }
+      : null;
   if (!definition.marketKey)
     return latestManual
-      ? {
+      ? withQuality({
           price: latestManual.price,
           source: "قیمت دستی",
           observedAt: latestManual.observedAt,
           retrievedAt: latestManual.createdAt,
           isManual: true,
-        }
+        }, "manual")
       : String(assetId).startsWith("custom:") && definition.unit !== "TOMAN"
         ? null
-        : { price: 1, source: "ارزش تومانی ثبت‌شده", observedAt: null, retrievedAt: null, isManual: false };
+        : withQuality(
+            { price: 1, source: "ارزش تومانی ثبت‌شده", observedAt: null, retrievedAt: null, isManual: false },
+            "tracking-value",
+          );
   const currentUnavailableAt = market?._currentQuotesUnavailableAt
     ? new Date(market._currentQuotesUnavailableAt).getTime()
     : NaN;
-  const current = market && market.assets && market.assets[definition.marketKey];
   const currentPrice = finite(current && current.price);
   const observedAtValue = current?.observedAt || current?.asOf || null;
   const observedAt = observedAtValue ? new Date(observedAtValue).getTime() : NaN;
@@ -563,31 +642,31 @@ export function marketPriceDetailsAt(market, assetId, asOf = new Date().toISOStr
     observedAt >= manualTime &&
     observedAt >= historyTime
   ) {
-    return {
+    return withQuality({
       price: currentPrice,
       source: current.sources?.join(", ") || current.source || "قیمت خودکار",
       observedAt: observedAtValue,
       retrievedAt,
       isManual: false,
-    };
+    }, "current");
   }
   if (latestManual && manualTime >= historyTime) {
-    return {
+    return withQuality({
       price: latestManual.price,
       source: "قیمت دستی",
       observedAt: latestManual.observedAt,
       retrievedAt: latestManual.createdAt,
       isManual: true,
-    };
+    }, "manual");
   }
   if (lastHistory)
-    return {
+    return withQuality({
       price: lastHistory.value,
       source: lastHistory.source || "تاریخچه‌ی بازار",
       observedAt: lastHistory.date,
       retrievedAt: null,
       isManual: false,
-    };
+    }, "history");
   if (
     currentQuoteUsable &&
     !latestManual &&
@@ -596,13 +675,13 @@ export function marketPriceDetailsAt(market, assetId, asOf = new Date().toISOStr
     timestamp >= retrievedTime &&
     (!Number.isFinite(currentUnavailableAt) || timestamp < currentUnavailableAt)
   ) {
-    return {
+    return withQuality({
       price: currentPrice,
       source: current.sources?.join(", ") || current.source || "قیمت خودکار",
       observedAt: null,
       retrievedAt,
       isManual: false,
-    };
+    }, "current");
   }
   return null;
 }
@@ -669,6 +748,11 @@ export function ledgerState(transactions, asOf = new Date().toISOString(), asset
         holdings[transaction.assetId] -= Number(transaction.quantity) || 0;
         holdings[transaction.targetAssetId] += Number(transaction.targetQuantity) || 0;
         break;
+      case "BASIS_CORRECTION": {
+        const previousBasis = portfolioCostBasis(applied, transaction.date)[transaction.assetId]?.basis || 0;
+        contributed += (Number(transaction.amount) || 0) - previousBasis;
+        break;
+      }
       default:
         break;
     }
@@ -679,51 +763,107 @@ export function ledgerState(transactions, asOf = new Date().toISOString(), asset
 
 export function portfolioCostBasis(transactions, asOf = new Date().toISOString()) {
   const positions = new Map();
-  const positionFor = (assetId) => positions.get(assetId) || { quantity: 0, basis: 0 };
-  const add = (assetId, quantity, basis) => {
+  const positionFor = (assetId) =>
+    positions.get(assetId) || { quantity: 0, confirmedBasis: 0, estimatedBasis: 0, unknownQuantity: 0 };
+  const add = (assetId, quantity, basis, status = "unknown") => {
     if (!assetId || quantity <= EPSILON || basis < 0) return;
     const position = positionFor(assetId);
-    positions.set(assetId, { quantity: position.quantity + quantity, basis: position.basis + basis });
+    const next = { ...position, quantity: position.quantity + quantity };
+    if (status === "confirmed") next.confirmedBasis += basis;
+    else if (status === "estimated") next.estimatedBasis += basis;
+    else next.unknownQuantity += quantity;
+    positions.set(assetId, next);
   };
   const remove = (assetId, quantity) => {
     const position = positionFor(assetId);
-    if (position.quantity <= EPSILON || quantity <= EPSILON) return 0;
+    if (position.quantity <= EPSILON || quantity <= EPSILON)
+      return { quantity: 0, confirmedBasis: 0, estimatedBasis: 0, unknownQuantity: 0 };
     const removedQuantity = Math.min(position.quantity, quantity);
-    const removedBasis = position.basis * (removedQuantity / position.quantity);
+    const retainedRatio = Math.max(0, (position.quantity - removedQuantity) / position.quantity);
+    const removed = {
+      quantity: removedQuantity,
+      confirmedBasis: position.confirmedBasis * (1 - retainedRatio),
+      estimatedBasis: position.estimatedBasis * (1 - retainedRatio),
+      unknownQuantity: position.unknownQuantity * (1 - retainedRatio),
+    };
     positions.set(assetId, {
       quantity: Math.max(0, position.quantity - removedQuantity),
-      basis: Math.max(0, position.basis - removedBasis),
+      confirmedBasis: Math.max(0, position.confirmedBasis * retainedRatio),
+      estimatedBasis: Math.max(0, position.estimatedBasis * retainedRatio),
+      unknownQuantity: Math.max(0, position.unknownQuantity * retainedRatio),
     });
-    return removedBasis;
+    return removed;
   };
 
   sortedTransactions(transactions, asOf).forEach((transaction) => {
     const quantity = Math.abs(Number(transaction.quantity) || 0);
     const amount = transactionAmount(transaction);
     const fee = Number(transaction.fee) || 0;
-    if (["OPENING", "BUY"].includes(transaction.type)) add(transaction.assetId, quantity, amount + fee);
+    if (["OPENING", "BUY"].includes(transaction.type))
+      add(transaction.assetId, quantity, amount + fee, transaction.costBasisStatus || "unknown");
     if (transaction.type === "SELL") remove(transaction.assetId, quantity);
     if (transaction.type === "ADJUSTMENT") {
-      if (Number(transaction.quantity) > 0) add(transaction.assetId, quantity, amount + fee);
+      if (Number(transaction.quantity) > 0)
+        add(transaction.assetId, quantity, amount + fee, transaction.costBasisStatus || "unknown");
       else remove(transaction.assetId, quantity);
     }
-    if (["DEPOSIT", "DIVIDEND"].includes(transaction.type)) add("cash", amount, amount);
+    if (["DEPOSIT", "DIVIDEND"].includes(transaction.type)) add("cash", amount, amount, "confirmed");
     if (transaction.type === "WITHDRAWAL") remove("cash", amount);
     if (transaction.type === "TRANSFER") {
-      const movedBasis = remove(transaction.assetId, quantity);
-      add(transaction.targetAssetId, Number(transaction.targetQuantity) || 0, movedBasis);
+      const moved = remove(transaction.assetId, quantity);
+      if (moved.quantity > EPSILON) {
+        const targetQuantity = Number(transaction.targetQuantity) || 0;
+        const retainedSourceRatio = targetQuantity / moved.quantity;
+        const target = positionFor(transaction.targetAssetId);
+        positions.set(transaction.targetAssetId, {
+          quantity: target.quantity + targetQuantity,
+          confirmedBasis: target.confirmedBasis + moved.confirmedBasis,
+          estimatedBasis: target.estimatedBasis + moved.estimatedBasis,
+          unknownQuantity: target.unknownQuantity + moved.unknownQuantity * retainedSourceRatio,
+        });
+      }
+    }
+    if (transaction.type === "BASIS_CORRECTION") {
+      const position = positionFor(transaction.assetId);
+      if (Math.abs(position.quantity - quantity) <= EPSILON) {
+        positions.set(transaction.assetId, {
+          quantity: position.quantity,
+          confirmedBasis: amount,
+          estimatedBasis: 0,
+          unknownQuantity: 0,
+        });
+      }
     }
   });
 
   return Object.fromEntries(
-    [...positions].map(([assetId, position]) => [
-      assetId,
-      {
-        quantity: position.quantity,
-        basis: position.basis,
-        averageCost: position.quantity > EPSILON ? position.basis / position.quantity : null,
-      },
-    ]),
+    [...positions].map(([assetId, position]) => {
+      const knownBasis = position.confirmedBasis + position.estimatedBasis;
+      const hasConfirmed = position.confirmedBasis > EPSILON;
+      const hasEstimated = position.estimatedBasis > EPSILON;
+      const hasUnknown = position.unknownQuantity > EPSILON;
+      const status = hasUnknown
+        ? hasConfirmed || hasEstimated
+          ? "partial"
+          : "unknown"
+        : hasEstimated
+          ? hasConfirmed
+            ? "mixed"
+            : "estimated"
+          : "confirmed";
+      return [
+        assetId,
+        {
+          quantity: position.quantity,
+          basis: knownBasis > EPSILON ? knownBasis : null,
+          confirmedBasis: position.confirmedBasis,
+          estimatedBasis: position.estimatedBasis,
+          unknownQuantity: position.unknownQuantity,
+          status,
+          averageCost: position.quantity > EPSILON && !hasUnknown ? knownBasis / position.quantity : null,
+        },
+      ];
+    }),
   );
 }
 
@@ -755,7 +895,7 @@ export function portfolioContributionSeries(transactions, asOf = new Date().toIS
   return [...contributions.entries()]
     .filter(([month]) => month >= startMonth && month <= endMonth)
     .sort(([left], [right]) => left - right)
-    .map(([month, value]) => ({ date: new Date(month).toISOString(), value }));
+    .map(([month, value]) => ({ date: new Date(month).toISOString(), value, calendar: REPORTING_CALENDAR }));
 }
 
 function valueState(holdings, market, asOf, assets = PORTFOLIO_ASSETS) {
@@ -765,11 +905,24 @@ function valueState(holdings, market, asOf, assets = PORTFOLIO_ASSETS) {
   let investableTotal = 0;
   let liquidTotal = 0;
   const sleeveValues = {};
+  const quoteQualityCounts = {
+    accepted: 0,
+    "accepted-estimate": 0,
+    stale: 0,
+    manual: 0,
+    unavailable: 0,
+    "rejected-conflict": 0,
+  };
   Object.keys(assets).forEach((assetId) => {
     const quantity = Number(holdings[assetId]) || 0;
     const priceDetails = marketPriceDetailsAt(market, assetId, asOf);
+    const definition = assets[assetId];
+    const currentQuote = definition.marketKey ? market?.assets?.[definition.marketKey] : null;
     const price = priceDetails?.price ?? null;
     const value = price === null ? null : quantity * price;
+    const quoteQuality =
+      priceDetails?.qualityState ||
+      (currentQuote?.status === "conflicted" ? "rejected-conflict" : "unavailable");
     values[assetId] = {
       quantity,
       price,
@@ -777,8 +930,21 @@ function valueState(holdings, market, asOf, assets = PORTFOLIO_ASSETS) {
       unit: assets[assetId].unit,
       priceSource: priceDetails?.source || null,
       priceObservedAt: priceDetails?.observedAt || null,
+      priceRetrievedAt: priceDetails?.retrievedAt || null,
+      quoteQuality,
+      quoteEligible: priceDetails?.eligible === true,
+      rejectedConflict: priceDetails?.rejectedConflict === true || currentQuote?.status === "conflicted",
+      quoteStatus: priceDetails?.status || currentQuote?.status || "unavailable",
+      quoteConfidence: priceDetails?.confidence || currentQuote?.confidence || "none",
+      quoteType: priceDetails?.quoteType || currentQuote?.quoteType || definition.quoteType || null,
+      sourceCount: priceDetails?.sourceCount ?? (Number(currentQuote?.sourceCount) || 0),
+      configuredSourceCount: priceDetails?.configuredSourceCount ?? (Number(currentQuote?.configuredSourceCount) || 0),
+      spreadPct: priceDetails?.spreadPct ?? finite(currentQuote?.spreadPct),
+      acceptedSpreadPct: priceDetails?.acceptedSpreadPct ?? finite(currentQuote?.acceptedSpreadPct),
+      conversionDependencies: priceDetails?.dependencies || currentQuote?.dependencies || [],
       manualPrice: Boolean(priceDetails?.isManual),
     };
+    if (quantity > EPSILON) quoteQualityCounts[quoteQuality] = (quoteQualityCounts[quoteQuality] || 0) + 1;
     if (quantity > EPSILON && value === null) missingPrices.push(assetId);
     if (value !== null) {
       totalValue += value;
@@ -790,17 +956,42 @@ function valueState(holdings, market, asOf, assets = PORTFOLIO_ASSETS) {
   });
   const allocation = {};
   Object.entries(values).forEach(([assetId, item]) => {
-    allocation[assetId] = totalValue > EPSILON && item.value !== null ? (item.value / totalValue) * 100 : 0;
+    allocation[assetId] = missingPrices.length
+      ? null
+      : totalValue > EPSILON && item.value !== null
+        ? (item.value / totalValue) * 100
+        : 0;
   });
+  const hasConflict = missingPrices.some((assetId) => values[assetId]?.rejectedConflict);
+  const hasStale = quoteQualityCounts.stale > 0;
+  const hasEstimate = quoteQualityCounts["accepted-estimate"] > 0;
+  const hasManual = quoteQualityCounts.manual > 0;
+  const quoteQualityStatus = missingPrices.length
+    ? hasConflict
+      ? "rejected-conflict"
+      : "unavailable"
+    : hasStale
+      ? "stale"
+      : hasEstimate
+        ? "accepted-estimate"
+        : hasManual
+          ? "manual"
+          : "accepted";
+  const valuationComplete = missingPrices.length === 0;
   return {
     values,
-    totalValue,
-    netWorth: totalValue,
-    investableTotal,
-    liquidTotal,
-    sleeveValues,
+    totalValue: valuationComplete ? totalValue : null,
+    partialTotalValue: totalValue,
+    netWorth: valuationComplete ? totalValue : null,
+    investableTotal: valuationComplete ? investableTotal : null,
+    liquidTotal: valuationComplete ? liquidTotal : null,
+    sleeveValues: missingPrices.length ? null : sleeveValues,
+    partialSleeveValues: sleeveValues,
     allocation,
     missingPrices,
+    quoteQualityCounts,
+    quoteQualityStatus,
+    valuationComplete,
   };
 }
 
@@ -827,7 +1018,16 @@ function xirr(cashFlows, guess = 0.1) {
   return null;
 }
 
-function performanceMetrics(transactions, state, totalValue, asOf, inflationRate = 0) {
+function performanceMetrics(
+  transactions,
+  state,
+  totalValue,
+  asOf,
+  inflationRate = 0,
+  costBasisStatus = "confirmed",
+  valuationStatus = "accepted",
+  partialValue = null,
+) {
   const first = transactions
     .slice()
     .sort((left, right) => new Date(left.date).getTime() - new Date(right.date).getTime())[0];
@@ -841,21 +1041,56 @@ function performanceMetrics(transactions, state, totalValue, asOf, inflationRate
     if (["SELL", "WITHDRAWAL"].includes(transaction.type))
       flows.push({ date: transaction.date, amount: Math.max(0, amount - (Number(transaction.fee) || 0)) });
   });
-  if (totalValue > 0) flows.push({ date: asOf, amount: totalValue });
-  const annualizedReturn = xirr(flows);
-  const realTotalValue = realValue(totalValue, inflationRate, years);
+  const valuationAvailable = totalValue !== null && totalValue !== undefined && Number.isFinite(Number(totalValue));
+  const basisCorrectionApplied = transactions.some((transaction) => transaction.type === "BASIS_CORRECTION");
+  if (valuationAvailable && totalValue > 0) flows.push({ date: asOf, amount: totalValue });
+  const hasUnknownBasis = ["unknown", "partial"].includes(costBasisStatus);
+  const hasEstimatedBasis = ["estimated", "mixed"].includes(costBasisStatus);
+  const hasEstimatedValuation = ["accepted-estimate", "stale", "manual"].includes(valuationStatus);
+  const hasEstimatedPerformance = hasEstimatedBasis || hasEstimatedValuation;
+  const annualizedReturn = hasUnknownBasis || basisCorrectionApplied || !valuationAvailable ? null : xirr(flows);
+  const realTotalValue = valuationAvailable ? realValue(totalValue, inflationRate, years) : null;
+  const profitLoss = hasUnknownBasis || hasEstimatedPerformance || !valuationAvailable ? null : totalValue - state.netInvested;
+  const estimatedProfitLoss =
+    !hasUnknownBasis && hasEstimatedPerformance && valuationAvailable ? totalValue - state.netInvested : null;
   return {
     trackingStart: first ? first.date : null,
     years,
-    netInvested: state.netInvested,
-    currentValue: totalValue,
-    profitLoss: totalValue - state.netInvested,
+    netInvested: hasUnknownBasis ? null : state.netInvested,
+    estimatedNetInvested: hasEstimatedBasis ? state.netInvested : null,
+    netInvestedStatus: hasUnknownBasis ? "unavailable" : hasEstimatedBasis ? "estimated" : "confirmed",
+    currentValue: valuationAvailable ? totalValue : null,
+    partialValue,
+    profitLoss,
+    estimatedProfitLoss,
+    performanceStatus:
+      hasUnknownBasis || !valuationAvailable
+        ? "unavailable"
+        : hasEstimatedPerformance
+          ? "estimated"
+          : "confirmed",
+    returnRateAvailable: !basisCorrectionApplied && !hasUnknownBasis && !hasEstimatedPerformance && valuationAvailable,
     cagr:
-      annualizedReturn === null && state.netInvested > 0 && years > 0
+      !basisCorrectionApplied && !hasUnknownBasis && !hasEstimatedPerformance && valuationAvailable && annualizedReturn === null && state.netInvested > 0 && years > 0
         ? Math.pow(totalValue / state.netInvested, 1 / years) - 1
-        : annualizedReturn,
+        : basisCorrectionApplied || hasEstimatedPerformance || hasUnknownBasis || !valuationAvailable
+          ? null
+          : annualizedReturn,
+    estimatedCagr:
+      hasEstimatedPerformance && valuationAvailable
+        ? annualizedReturn === null && state.netInvested > 0 && years > 0
+          ? Math.pow(totalValue / state.netInvested, 1 / years) - 1
+          : annualizedReturn
+        : null,
     realValue: realTotalValue,
-    inflationAdjustedReturn: state.netInvested > 0 ? realTotalValue / state.netInvested - 1 : null,
+    inflationAdjustedReturn:
+      !basisCorrectionApplied && !hasUnknownBasis && !hasEstimatedPerformance && valuationAvailable && state.netInvested > 0
+        ? realTotalValue / state.netInvested - 1
+        : null,
+    estimatedInflationAdjustedReturn:
+      hasEstimatedPerformance && valuationAvailable && state.netInvested > 0
+        ? realTotalValue / state.netInvested - 1
+        : null,
     dividends: state.dividends,
   };
 }
@@ -868,6 +1103,26 @@ export function calculatePortfolio(portfolio, market, asOf = new Date().toISOStr
   const marketWithManualQuotes = { ...(market || {}), manualQuotes: normalized.manualQuotes, assetDefinitions: assets };
   const state = ledgerState(transactions, asOf, assets);
   const valuation = valueState(state.holdings, marketWithManualQuotes, asOf, assets);
+  const costBasisByAsset = portfolioCostBasis(state.applied, asOf);
+  const openPositions = Object.entries(state.holdings)
+    .filter(([, quantity]) => Math.abs(Number(quantity) || 0) > EPSILON)
+    .map(([assetId]) => costBasisByAsset[assetId])
+    .filter(Boolean);
+  const hasUnknownBasis = openPositions.some((position) => position.unknownQuantity > EPSILON);
+  const hasEstimatedBasis = openPositions.some((position) => position.estimatedBasis > EPSILON);
+  const hasConfirmedBasis = openPositions.some((position) => position.confirmedBasis > EPSILON);
+  const costBasisStatus = !openPositions.length
+    ? "none"
+    : hasUnknownBasis
+      ? hasEstimatedBasis || hasConfirmedBasis
+        ? "partial"
+        : "unknown"
+      : hasEstimatedBasis
+        ? hasConfirmedBasis
+          ? "mixed"
+          : "estimated"
+        : "confirmed";
+  const valuationStatus = valuation.valuationComplete ? valuation.quoteQualityStatus : "unavailable";
   return {
     versionId: version.id,
     versionLabel: version.label,
@@ -879,10 +1134,26 @@ export function calculatePortfolio(portfolio, market, asOf = new Date().toISOStr
     investableTotal: valuation.investableTotal,
     liquidTotal: valuation.liquidTotal,
     sleeveValues: valuation.sleeveValues,
+    partialSleeveValues: valuation.partialSleeveValues,
     missingPrices: valuation.missingPrices,
+    valuationComplete: valuation.valuationComplete,
+    quoteQualityStatus: valuation.quoteQualityStatus,
+    quoteQualityCounts: valuation.quoteQualityCounts,
+    partialValue: valuation.partialTotalValue,
+    costBasisByAsset,
+    costBasisStatus,
     assets,
     audit: version.audit,
-    ...performanceMetrics(state.applied, state, valuation.totalValue, asOf, inflationRate),
+    ...performanceMetrics(
+      state.applied,
+      state,
+      valuation.totalValue,
+      asOf,
+      inflationRate,
+      costBasisStatus,
+      valuationStatus,
+      valuation.partialTotalValue,
+    ),
   };
 }
 
@@ -890,8 +1161,12 @@ export function validateLedger(transactions, assets = PORTFOLIO_ASSETS) {
   const holdings = emptyHoldings(assets);
   const errors = [];
   sortedTransactions(transactions, new Date(8640000000000000).toISOString()).forEach((transaction) => {
+    const requiresAssetBalance =
+      transaction.type === "SELL" ||
+      (transaction.type === "ADJUSTMENT" && Number(transaction.quantity) < 0) ||
+      transaction.type === "BASIS_CORRECTION";
     const required =
-      transaction.type === "SELL" || transaction.type === "WITHDRAWAL"
+      requiresAssetBalance || transaction.type === "WITHDRAWAL"
         ? transaction.type === "WITHDRAWAL"
           ? "cash"
           : transaction.assetId
@@ -903,9 +1178,16 @@ export function validateLedger(transactions, assets = PORTFOLIO_ASSETS) {
         ? transaction.amount
         : transaction.type === "TRANSFER"
           ? transaction.quantity
+          : transaction.type === "ADJUSTMENT"
+            ? Math.abs(Number(transaction.quantity) || 0)
           : transaction.quantity;
     if (required && (Number(holdings[required]) || 0) + EPSILON < (Number(requested) || 0))
       errors.push({ code: "negative-holding", transactionId: transaction.id, assetId: required });
+    if (
+      transaction.type === "BASIS_CORRECTION" &&
+      Math.abs((Number(holdings[transaction.assetId]) || 0) - (Number(transaction.quantity) || 0)) > EPSILON
+    )
+      errors.push({ code: "basis-quantity-mismatch", transactionId: transaction.id, assetId: transaction.assetId });
     if (transaction.type === "TRANSFER") {
       holdings[transaction.assetId] -= Number(transaction.quantity) || 0;
       holdings[transaction.targetAssetId] += Number(transaction.targetQuantity) || 0;
@@ -1010,11 +1292,31 @@ export function createTransaction(input, market, now = new Date().toISOString(),
     manualQuotes: normalizedPortfolio.manualQuotes,
     assetDefinitions: assetRegistry(normalizedPortfolio),
   };
+  const enteredUnitPrice = finite(input.unitPrice);
+  const marketUnitPrice = marketPriceAt(transactionMarket, effectiveAssetId, date);
+  const basisUnknown =
+    ["OPENING", "BUY", "ADJUSTMENT"].includes(type) && input.costBasisStatus === "unknown" && definition.unit !== "TOMAN";
   const unitPrice =
-    finite(input.unitPrice) ||
-    (definition.unit === "TOMAN" ? 1 : marketPriceAt(transactionMarket, effectiveAssetId, date));
+    type === "BASIS_CORRECTION"
+      ? null
+      : enteredUnitPrice ?? (basisUnknown ? null : definition.unit === "TOMAN" ? 1 : marketUnitPrice);
   const quantity = finite(input.quantity);
   const amount = finite(input.amount);
+  const costBasisStatus =
+    type === "BASIS_CORRECTION"
+      ? "confirmed"
+      : ["OPENING", "BUY", "ADJUSTMENT"].includes(type)
+        ? ["confirmed", "estimated", "unknown"].includes(input.costBasisStatus)
+          ? input.costBasisStatus
+          : enteredUnitPrice !== null
+            ? "confirmed"
+            : unitPrice !== null && unitPrice > 0
+              ? definition.unit === "TOMAN"
+                ? "confirmed"
+                : "estimated"
+              : "unknown"
+        : "unknown";
+  const referencePrice = marketUnitPrice ?? (definition.unit === "TOMAN" ? 1 : null);
   const transaction = {
     id: makeId("tx"),
     type,
@@ -1023,6 +1325,9 @@ export function createTransaction(input, market, now = new Date().toISOString(),
     targetQuantity: finite(input.targetQuantity),
     quantity,
     unitPrice,
+    trackingValue:
+      type === "OPENING" && quantity !== null && referencePrice !== null ? quantity * referencePrice : finite(input.trackingValue),
+    costBasisStatus,
     targetUnitPrice: finite(input.targetUnitPrice),
     amount,
     fee: Math.max(0, finite(input.fee) || 0),
