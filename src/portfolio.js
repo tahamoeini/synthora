@@ -212,7 +212,10 @@ function normalizeTransaction(raw, assets = PORTFOLIO_ASSETS) {
         ? raw.costBasisStatus
         : "unknown";
   if (!assetId && raw.type !== "DEPOSIT" && raw.type !== "WITHDRAWAL") return null;
-  if (["OPENING", "BUY", "SELL", "TRANSFER", "BASIS_CORRECTION"].includes(raw.type) && (quantity === null || quantity <= EPSILON))
+  if (
+    ["OPENING", "BUY", "SELL", "TRANSFER", "BASIS_CORRECTION"].includes(raw.type) &&
+    (quantity === null || quantity <= EPSILON)
+  )
     return null;
   if (raw.type === "ADJUSTMENT" && (quantity === null || Math.abs(quantity) <= EPSILON)) return null;
   if (
@@ -517,7 +520,19 @@ function seriesPointValue(point) {
   };
 }
 
-function quoteQualityDetails({ assetId, definition, market, current, price, source, observedAt, retrievedAt, isManual, sourceKind, asOf }) {
+function quoteQualityDetails({
+  assetId,
+  definition,
+  market,
+  current,
+  price,
+  source,
+  observedAt,
+  retrievedAt,
+  isManual,
+  sourceKind,
+  asOf,
+}) {
   const rejectedConflict = current?.status === "conflicted";
   const shared = {
     eligible: Number.isFinite(Number(price)) && Number(price) > 0,
@@ -545,8 +560,7 @@ function quoteQualityDetails({ assetId, definition, market, current, price, sour
     market?._clientStale === true ||
     (Number.isFinite(observedTime) && Number.isFinite(asOfTime) && asOfTime - observedTime > freshnessWindowMs);
   const partialCoverage =
-    Number(current?.configuredSourceCount) > 0 &&
-    Number(current?.sourceCount) < Number(current.configuredSourceCount);
+    Number(current?.configuredSourceCount) > 0 && Number(current?.sourceCount) < Number(current.configuredSourceCount);
   const estimated =
     sourceKind !== "history" &&
     (current?.status !== "healthy" ||
@@ -594,13 +608,16 @@ export function marketPriceDetailsAt(market, assetId, asOf = new Date().toISOStr
       : null;
   if (!definition.marketKey)
     return latestManual
-      ? withQuality({
-          price: latestManual.price,
-          source: "قیمت دستی",
-          observedAt: latestManual.observedAt,
-          retrievedAt: latestManual.createdAt,
-          isManual: true,
-        }, "manual")
+      ? withQuality(
+          {
+            price: latestManual.price,
+            source: "قیمت دستی",
+            observedAt: latestManual.observedAt,
+            retrievedAt: latestManual.createdAt,
+            isManual: true,
+          },
+          "manual",
+        )
       : String(assetId).startsWith("custom:") && definition.unit !== "TOMAN"
         ? null
         : withQuality(
@@ -642,31 +659,40 @@ export function marketPriceDetailsAt(market, assetId, asOf = new Date().toISOStr
     observedAt >= manualTime &&
     observedAt >= historyTime
   ) {
-    return withQuality({
-      price: currentPrice,
-      source: current.sources?.join(", ") || current.source || "قیمت خودکار",
-      observedAt: observedAtValue,
-      retrievedAt,
-      isManual: false,
-    }, "current");
+    return withQuality(
+      {
+        price: currentPrice,
+        source: current.sources?.join(", ") || current.source || "قیمت خودکار",
+        observedAt: observedAtValue,
+        retrievedAt,
+        isManual: false,
+      },
+      "current",
+    );
   }
   if (latestManual && manualTime >= historyTime) {
-    return withQuality({
-      price: latestManual.price,
-      source: "قیمت دستی",
-      observedAt: latestManual.observedAt,
-      retrievedAt: latestManual.createdAt,
-      isManual: true,
-    }, "manual");
+    return withQuality(
+      {
+        price: latestManual.price,
+        source: "قیمت دستی",
+        observedAt: latestManual.observedAt,
+        retrievedAt: latestManual.createdAt,
+        isManual: true,
+      },
+      "manual",
+    );
   }
   if (lastHistory)
-    return withQuality({
-      price: lastHistory.value,
-      source: lastHistory.source || "تاریخچه‌ی بازار",
-      observedAt: lastHistory.date,
-      retrievedAt: null,
-      isManual: false,
-    }, "history");
+    return withQuality(
+      {
+        price: lastHistory.value,
+        source: lastHistory.source || "تاریخچه‌ی بازار",
+        observedAt: lastHistory.date,
+        retrievedAt: null,
+        isManual: false,
+      },
+      "history",
+    );
   if (
     currentQuoteUsable &&
     !latestManual &&
@@ -675,13 +701,16 @@ export function marketPriceDetailsAt(market, assetId, asOf = new Date().toISOStr
     timestamp >= retrievedTime &&
     (!Number.isFinite(currentUnavailableAt) || timestamp < currentUnavailableAt)
   ) {
-    return withQuality({
-      price: currentPrice,
-      source: current.sources?.join(", ") || current.source || "قیمت خودکار",
-      observedAt: null,
-      retrievedAt,
-      isManual: false,
-    }, "current");
+    return withQuality(
+      {
+        price: currentPrice,
+        source: current.sources?.join(", ") || current.source || "قیمت خودکار",
+        observedAt: null,
+        retrievedAt,
+        isManual: false,
+      },
+      "current",
+    );
   }
   return null;
 }
@@ -921,8 +950,7 @@ function valueState(holdings, market, asOf, assets = PORTFOLIO_ASSETS) {
     const price = priceDetails?.price ?? null;
     const value = price === null ? null : quantity * price;
     const quoteQuality =
-      priceDetails?.qualityState ||
-      (currentQuote?.status === "conflicted" ? "rejected-conflict" : "unavailable");
+      priceDetails?.qualityState || (currentQuote?.status === "conflicted" ? "rejected-conflict" : "unavailable");
     values[assetId] = {
       quantity,
       price,
@@ -1050,7 +1078,8 @@ function performanceMetrics(
   const hasEstimatedPerformance = hasEstimatedBasis || hasEstimatedValuation;
   const annualizedReturn = hasUnknownBasis || basisCorrectionApplied || !valuationAvailable ? null : xirr(flows);
   const realTotalValue = valuationAvailable ? realValue(totalValue, inflationRate, years) : null;
-  const profitLoss = hasUnknownBasis || hasEstimatedPerformance || !valuationAvailable ? null : totalValue - state.netInvested;
+  const profitLoss =
+    hasUnknownBasis || hasEstimatedPerformance || !valuationAvailable ? null : totalValue - state.netInvested;
   const estimatedProfitLoss =
     !hasUnknownBasis && hasEstimatedPerformance && valuationAvailable ? totalValue - state.netInvested : null;
   return {
@@ -1064,14 +1093,16 @@ function performanceMetrics(
     profitLoss,
     estimatedProfitLoss,
     performanceStatus:
-      hasUnknownBasis || !valuationAvailable
-        ? "unavailable"
-        : hasEstimatedPerformance
-          ? "estimated"
-          : "confirmed",
+      hasUnknownBasis || !valuationAvailable ? "unavailable" : hasEstimatedPerformance ? "estimated" : "confirmed",
     returnRateAvailable: !basisCorrectionApplied && !hasUnknownBasis && !hasEstimatedPerformance && valuationAvailable,
     cagr:
-      !basisCorrectionApplied && !hasUnknownBasis && !hasEstimatedPerformance && valuationAvailable && annualizedReturn === null && state.netInvested > 0 && years > 0
+      !basisCorrectionApplied &&
+      !hasUnknownBasis &&
+      !hasEstimatedPerformance &&
+      valuationAvailable &&
+      annualizedReturn === null &&
+      state.netInvested > 0 &&
+      years > 0
         ? Math.pow(totalValue / state.netInvested, 1 / years) - 1
         : basisCorrectionApplied || hasEstimatedPerformance || hasUnknownBasis || !valuationAvailable
           ? null
@@ -1084,7 +1115,11 @@ function performanceMetrics(
         : null,
     realValue: realTotalValue,
     inflationAdjustedReturn:
-      !basisCorrectionApplied && !hasUnknownBasis && !hasEstimatedPerformance && valuationAvailable && state.netInvested > 0
+      !basisCorrectionApplied &&
+      !hasUnknownBasis &&
+      !hasEstimatedPerformance &&
+      valuationAvailable &&
+      state.netInvested > 0
         ? realTotalValue / state.netInvested - 1
         : null,
     estimatedInflationAdjustedReturn:
@@ -1180,7 +1215,7 @@ export function validateLedger(transactions, assets = PORTFOLIO_ASSETS) {
           ? transaction.quantity
           : transaction.type === "ADJUSTMENT"
             ? Math.abs(Number(transaction.quantity) || 0)
-          : transaction.quantity;
+            : transaction.quantity;
     if (required && (Number(holdings[required]) || 0) + EPSILON < (Number(requested) || 0))
       errors.push({ code: "negative-holding", transactionId: transaction.id, assetId: required });
     if (
@@ -1295,11 +1330,13 @@ export function createTransaction(input, market, now = new Date().toISOString(),
   const enteredUnitPrice = finite(input.unitPrice);
   const marketUnitPrice = marketPriceAt(transactionMarket, effectiveAssetId, date);
   const basisUnknown =
-    ["OPENING", "BUY", "ADJUSTMENT"].includes(type) && input.costBasisStatus === "unknown" && definition.unit !== "TOMAN";
+    ["OPENING", "BUY", "ADJUSTMENT"].includes(type) &&
+    input.costBasisStatus === "unknown" &&
+    definition.unit !== "TOMAN";
   const unitPrice =
     type === "BASIS_CORRECTION"
       ? null
-      : enteredUnitPrice ?? (basisUnknown ? null : definition.unit === "TOMAN" ? 1 : marketUnitPrice);
+      : (enteredUnitPrice ?? (basisUnknown ? null : definition.unit === "TOMAN" ? 1 : marketUnitPrice));
   const quantity = finite(input.quantity);
   const amount = finite(input.amount);
   const costBasisStatus =
@@ -1326,7 +1363,9 @@ export function createTransaction(input, market, now = new Date().toISOString(),
     quantity,
     unitPrice,
     trackingValue:
-      type === "OPENING" && quantity !== null && referencePrice !== null ? quantity * referencePrice : finite(input.trackingValue),
+      type === "OPENING" && quantity !== null && referencePrice !== null
+        ? quantity * referencePrice
+        : finite(input.trackingValue),
     costBasisStatus,
     targetUnitPrice: finite(input.targetUnitPrice),
     amount,

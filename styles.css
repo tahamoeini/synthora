@@ -3,7 +3,7 @@
   --surface: rgba(255, 255, 255, 0.94);
   --surface-muted: #f9fbfc;
   --ink: #102331;
-  --muted: #667785;
+  --muted: #5c6d79;
   --line: #e1e9e9;
   --primary: #126b62;
   --primary-dark: #0d514b;
@@ -14,7 +14,7 @@
   --danger: #a04a45;
   --shadow: 0 18px 48px rgba(21, 48, 61, 0.07);
   --chart-grid: #e8eeee;
-  --chart-label: #81909a;
+  --chart-label: #5c6d79;
   --chart-baseline: #b5c2c4;
   --chart-portfolio: #126b62;
   --chart-target: #c18a2c;
@@ -4011,21 +4011,37 @@ summary {
   border-collapse: collapse;
 }
 .holdings-table th:nth-child(1),
-.holdings-table td:nth-child(1) { width: 16%; }
+.holdings-table td:nth-child(1) {
+  width: 16%;
+}
 .holdings-table th:nth-child(2),
-.holdings-table td:nth-child(2) { width: 9%; }
+.holdings-table td:nth-child(2) {
+  width: 9%;
+}
 .holdings-table th:nth-child(3),
-.holdings-table td:nth-child(3) { width: 13%; }
+.holdings-table td:nth-child(3) {
+  width: 13%;
+}
 .holdings-table th:nth-child(4),
-.holdings-table td:nth-child(4) { width: 14%; }
+.holdings-table td:nth-child(4) {
+  width: 14%;
+}
 .holdings-table th:nth-child(5),
-.holdings-table td:nth-child(5) { width: 13%; }
+.holdings-table td:nth-child(5) {
+  width: 13%;
+}
 .holdings-table th:nth-child(6),
-.holdings-table td:nth-child(6) { width: 9%; }
+.holdings-table td:nth-child(6) {
+  width: 9%;
+}
 .holdings-table th:nth-child(7),
-.holdings-table td:nth-child(7) { width: 10%; }
+.holdings-table td:nth-child(7) {
+  width: 10%;
+}
 .holdings-table th:nth-child(8),
-.holdings-table td:nth-child(8) { width: 16%; }
+.holdings-table td:nth-child(8) {
+  width: 16%;
+}
 .holdings-table th,
 .holdings-table td {
   padding: 9px 8px;

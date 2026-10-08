@@ -1488,6 +1488,7 @@ export async function onRequestGet(context = {}) {
     "coinbase",
     "kraken",
     "metalsLive",
+    "metalCharts",
     "goldApi",
     "goldPrice",
     "standardBullion",
@@ -1507,7 +1508,7 @@ export async function onRequestGet(context = {}) {
   const excludedCurrencyQuotes = rawGlobalQuotes.filter((item, index) => !convertedGlobalQuotes[index]);
   const currencyBlockedAssets = new Set(excludedCurrencyQuotes.map((item) => item.asset));
   const globalQuotes = convertedGlobalQuotes.filter(Boolean);
-  const referenceQuotes = ["tsetmc", "tgjuIndex"].flatMap((id) => {
+  const referenceQuotes = ["tsetmc", "tgjuIndex", "tindex"].flatMap((id) => {
     const result = providerResults.get(id);
     return result?.status === "fulfilled" ? result.value.quotes : [];
   });

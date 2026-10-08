@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parse } from "espree";
 import { createLocalizedCatalog, translateCopy } from "../src/ui/localization.js";
 
@@ -65,7 +66,7 @@ test("runtime-rendered copy is part of each complete locale resource", () => {
 });
 
 test("Persian runtime text literals and template fragments have alternate translations", () => {
-  const files = [new URL("../app.js", import.meta.url).pathname];
+  const files = [fileURLToPath(new URL("../app.js", import.meta.url))];
   const visitDirectory = (directory) => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const path = join(directory, entry.name);
@@ -73,7 +74,7 @@ test("Persian runtime text literals and template fragments have alternate transl
       else if (entry.name.endsWith(".js")) files.push(path);
     }
   };
-  visitDirectory(new URL("../src", import.meta.url).pathname);
+  visitDirectory(fileURLToPath(new URL("../src", import.meta.url)));
   const sources = new Set();
   const visitNode = (node) => {
     if (!node || typeof node !== "object") return;

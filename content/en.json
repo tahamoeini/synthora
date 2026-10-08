@@ -422,6 +422,8 @@
     "saleProceedsDisclosure": "Sale proceeds are not added to tracked cash. The sale reduces net invested capital, and the proceeds are treated as outside this tracked portfolio."
   },
   "phrases": {
+    "دلار": "US dollar",
+    "واحد": "unit",
     "تحلیل": "Analysis",
     "سناریو و بک‌تست": "Scenarios and backtests",
     "نسخه‌های ذخیره‌شده": "Saved versions",

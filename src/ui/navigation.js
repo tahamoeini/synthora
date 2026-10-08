@@ -68,7 +68,8 @@ export function createNavigationController(shell, store, windowRef = globalThis.
     });
     const activeItem = NAVIGATION_ITEMS.find((item) => item.id === state.activeView);
     const activeButton = navigation.items.find((item) => item.dataset.navView === state.activeView);
-    const localizedLabel = activeButton?.querySelector?.(".nav-copy strong")?.textContent || activeButton?.textContent?.trim();
+    const localizedLabel =
+      activeButton?.querySelector?.(".nav-copy strong")?.textContent || activeButton?.textContent?.trim();
     if (navigation.title && activeItem) navigation.title.textContent = localizedLabel || activeItem.label;
     if (sidebar.overlay) sidebar.overlay.setAttribute("aria-hidden", state.mobileNavOpen ? "false" : "true");
     if (sidebar.toggle) sidebar.toggle.setAttribute("aria-expanded", state.sidebarCollapsed ? "false" : "true");
@@ -78,9 +79,15 @@ export function createNavigationController(shell, store, windowRef = globalThis.
 
   function saveCurrentScroll() {
     if (!windowRef?.history?.replaceState || !windowRef.location) return;
-    const previous = windowRef.history.state && typeof windowRef.history.state === "object" ? windowRef.history.state : {};
+    const previous =
+      windowRef.history.state && typeof windowRef.history.state === "object" ? windowRef.history.state : {};
     windowRef.history.replaceState(
-      { ...previous, synthoraView: store.getState().activeView, scrollX: windowRef.scrollX || 0, scrollY: windowRef.scrollY || 0 },
+      {
+        ...previous,
+        synthoraView: store.getState().activeView,
+        scrollX: windowRef.scrollX || 0,
+        scrollY: windowRef.scrollY || 0,
+      },
       "",
       windowRef.location.href,
     );
@@ -104,7 +111,9 @@ export function createNavigationController(shell, store, windowRef = globalThis.
     if (Number.isFinite(Number(state?.scrollY))) {
       const scrollX = Number(state.scrollX) || 0;
       const scrollY = Number(state.scrollY) || 0;
-      windowRef.requestAnimationFrame?.(() => windowRef.scrollTo?.({ left: scrollX, top: scrollY, behavior: "instant" }));
+      windowRef.requestAnimationFrame?.(() =>
+        windowRef.scrollTo?.({ left: scrollX, top: scrollY, behavior: "instant" }),
+      );
     }
   }
 
@@ -113,11 +122,16 @@ export function createNavigationController(shell, store, windowRef = globalThis.
     const initialView = viewFromLocation(windowRef);
     if (!windowRef.location.hash && initialView === "dashboard") {
       const query = windowRef.location.search;
-      if (query && new URLSearchParams(query).has("view")) windowRef.history.replaceState({ synthoraView: initialView, scrollX: 0, scrollY: 0 }, "", `#${initialView}`);
+      if (query && new URLSearchParams(query).has("view"))
+        windowRef.history.replaceState({ synthoraView: initialView, scrollX: 0, scrollY: 0 }, "", `#${initialView}`);
     }
     store.setState({ activeView: initialView });
     if (!windowRef.history.state?.synthoraView)
-      windowRef.history.replaceState({ ...(windowRef.history.state || {}), synthoraView: initialView, scrollX: 0, scrollY: windowRef.scrollY || 0 }, "", windowRef.location.href);
+      windowRef.history.replaceState(
+        { ...(windowRef.history.state || {}), synthoraView: initialView, scrollX: 0, scrollY: windowRef.scrollY || 0 },
+        "",
+        windowRef.location.href,
+      );
   }
 
   navigation.items.forEach((item) => item.addEventListener("click", () => goTo(item.dataset.navView)));
