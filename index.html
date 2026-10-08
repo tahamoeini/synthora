@@ -2,6 +2,7 @@
 <html lang="fa" dir="rtl">
   <head>
     <meta charset="UTF-8" />
+    <script>document.documentElement.dataset.hydrating = "true";</script>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="author" content="Taha Moeini" />
     <meta name="creator" content="Taha Moeini" />
@@ -49,6 +50,12 @@
   </head>
 
   <body>
+    <div id="app-loading" class="app-loading" role="status" aria-live="polite">
+      <span data-loading-locale="fa">بررسی داده‌های ذخیره‌شده در همین مرورگر…</span>
+      <span data-loading-locale="en">Checking saved data in this browser…</span>
+      <span data-loading-locale="ru">Проверяем данные, сохранённые в этом браузере…</span>
+      <span data-loading-locale="zh">正在检查此浏览器中保存的数据…</span>
+    </div>
     <div id="app-shell" class="app-shell">
       <aside id="app-sidebar" class="app-sidebar" aria-label="ناوبری برنامه">
         <div class="sidebar-header">
@@ -69,34 +76,38 @@
           </button>
         </div>
         <nav id="app-navigation" class="app-navigation" aria-label="بخش‌های برنامه">
-          <button type="button" data-nav-view="dashboard">
-            <span class="nav-icon">⌂</span
-            ><span class="nav-copy"><strong>داشبورد</strong><small>خلاصه وضعیت و اقدام بعدی</small></span>
-          </button>
-          <button type="button" data-nav-view="plan">
-            <span class="nav-icon">↗</span
-            ><span class="nav-copy"><strong>برنامه سرمایه‌گذاری</strong><small>ساخت برنامه ماهانه</small></span>
-          </button>
-          <button type="button" data-nav-view="portfolio">
-            <span class="nav-icon">◫</span
-            ><span class="nav-copy"><strong>پرتفوی من</strong><small>دارایی‌ها و دفتر تراکنش</small></span>
-          </button>
-          <button type="button" data-nav-view="simulation">
-            <span class="nav-icon">◌</span
-            ><span class="nav-copy"><strong>شبیه‌سازی و بک‌تست</strong><small>سناریو و بررسی گذشته</small></span>
-          </button>
-          <button type="button" data-nav-view="history">
-            <span class="nav-icon">◷</span
-            ><span class="nav-copy"><strong>تحلیل تاریخی</strong><small>سابقه برنامه‌های تو</small></span>
-          </button>
-          <button type="button" data-nav-view="assets">
-            <span class="nav-icon">◇</span
-            ><span class="nav-copy"><strong>دارایی‌ها و بازار</strong><small>قیمت‌های چندمنبعی</small></span>
-          </button>
-          <button type="button" data-nav-view="settings">
-            <span class="nav-icon">⚙</span
-            ><span class="nav-copy"><strong>تنظیمات</strong><small>داده محلی و ظاهر برنامه</small></span>
-          </button>
+          <div class="nav-group">
+            <button type="button" data-nav-view="dashboard">
+              <span class="nav-icon">⌂</span
+              ><span class="nav-copy"><strong>داشبورد</strong><small>خلاصه وضعیت و اقدام بعدی</small></span>
+            </button>
+          </div>
+          <div class="nav-group">
+            <button type="button" data-nav-view="portfolio">
+              <span class="nav-icon">◫</span
+              ><span class="nav-copy"><strong>پرتفوی من</strong><small>دارایی‌ها و دفتر تراکنش</small></span>
+            </button>
+          </div>
+          <div class="nav-group">
+            <button type="button" data-nav-view="plan">
+              <span class="nav-icon">↗</span
+              ><span class="nav-copy"><strong>برنامه سرمایه‌گذاری</strong><small>ساخت برنامه ماهانه</small></span>
+            </button>
+            <button class="nav-subitem" type="button" data-nav-view="history">نسخه‌های ذخیره‌شده</button>
+          </div>
+          <div class="nav-group">
+            <button type="button" data-nav-view="simulation">
+              <span class="nav-icon">◌</span
+              ><span class="nav-copy"><strong>تحلیل</strong><small>سناریو و بک‌تست</small></span>
+            </button>
+            <button class="nav-subitem" type="button" data-nav-view="assets">بازار و مقایسه</button>
+          </div>
+          <div class="nav-group">
+            <button type="button" data-nav-view="settings">
+              <span class="nav-icon">⚙</span
+              ><span class="nav-copy"><strong>تنظیمات</strong><small>داده محلی و ظاهر برنامه</small></span>
+            </button>
+          </div>
         </nav>
         <div class="sidebar-footer">
           <span class="privacy"><i></i> محاسبه روی همین دستگاه</span><small>نسخه رایگان و شفاف</small>
@@ -150,18 +161,23 @@
               </div>
             </div>
 
+            <p id="dashboard-state-note" class="data-note" aria-live="polite" hidden></p>
             <div id="dashboard-onboarding" class="dashboard-onboarding is-hidden">
               <div class="dashboard-icon">↗</div>
               <div>
-                <strong>برای شروع، برنامه یا موجودی واقعی‌ات را ثبت کن</strong>
-                <p>بدون داده شخصی هم می‌توانی بازار را ببینی؛ برای خلاصه پرتفوی، دفتر دارایی‌ها لازم است.</p>
+                <strong id="dashboard-onboarding-title">برای شروع، موجودی فعلی‌ات را ثبت کن</strong>
+                <p id="dashboard-onboarding-copy">می‌توانی بدون ساخت برنامه، موجودی فعلی‌ات را در دفتر محلی وارد کنی.</p>
               </div>
-              <button class="primary-button dashboard-action" data-go-view="plan" type="button">
-                <span>ساخت برنامه ماهانه</span><b>←</b>
-              </button>
+              <div class="dashboard-onboarding-actions">
+                <button class="primary-button dashboard-action" data-add-existing-holdings type="button">
+                  <span>ثبت دارایی‌های موجود</span><b>←</b>
+                </button>
+                <button class="secondary-button" data-go-view="plan" type="button">ساخت برنامه ماهانه</button>
+                <button class="text-button" data-go-view="assets" type="button">دیدن بازار</button>
+              </div>
             </div>
 
-            <section class="dashboard-summary-grid" aria-label="خلاصه مالی" aria-live="polite">
+            <section id="dashboard-summary-grid" class="dashboard-summary-grid" aria-label="خلاصه مالی" aria-live="polite">
               <article class="summary-card">
                 <span class="summary-label">ارزش فعلی پرتفوی</span><strong id="dashboard-current-value">—</strong
                 ><small id="dashboard-current-value-note">هنوز دفتر پرتفوی ثبت نشده</small>
@@ -195,7 +211,7 @@
 
             <p id="dashboard-currency-note" class="data-note" aria-live="polite" hidden></p>
 
-            <section class="dashboard-main-grid">
+            <section id="dashboard-main-grid" class="dashboard-main-grid">
               <article class="dashboard-card performance-card">
                 <div class="section-heading">
                   <div>
@@ -247,7 +263,7 @@
               </article>
             </section>
 
-            <section class="dashboard-secondary-grid">
+            <section id="dashboard-secondary-grid" class="dashboard-secondary-grid">
               <article class="dashboard-card health-card">
                 <div class="section-heading">
                   <div>
@@ -321,8 +337,8 @@
                 </div>
               </div>
               <div class="hero-card">
-                <span>قاعده شروع</span><strong>۱۵٪ تا ۲۵٪</strong
-                ><small>از حقوق ماهانه، با امکان تغییر بر اساس شرایط واقعی تو</small>
+                <span>فرض اولیه قابل ویرایش</span><strong>۲۰٪</strong
+                ><small>این درصد فقط ورودی شروع است، توصیه شخصی یا مبلغ امن نیست؛ آن را بر اساس شرایط خودت ویرایش کن.</small>
                 <div><span>منطق</span><b>داده + سابقه + محدودیت ریسک</b></div>
                 <div><span>خروجی</span><b>مبلغ، وزن، دامنه و دلیل</b></div>
               </div>
@@ -533,7 +549,7 @@
               </article>
             </div>
 
-            <form id="simulation-form" class="panel setup-panel simulation-inputs">
+            <form id="simulation-form" class="panel setup-panel simulation-inputs" novalidate>
               <div class="section-heading">
                 <div>
                   <span class="kicker">ورودی آزمایش</span>
@@ -561,13 +577,13 @@
                 <div class="field">
                   <label for="simulation-horizon">افق زمانی</label>
                   <div class="unit-input">
-                    <input id="simulation-horizon" type="number" min="1" max="50" value="5" /><span>سال</span>
+                    <input id="simulation-horizon" type="number" min="1" max="50" step="any" value="5" required /><span>سال</span>
                   </div>
                 </div>
                 <div class="field">
                   <label for="simulation-growth">رشد سالانه‌ی واریز</label>
                   <div class="unit-input">
-                    <input id="simulation-growth" type="number" min="-50" max="200" value="۰" /><span>٪</span>
+                    <input id="simulation-growth" type="number" min="-50" max="200" step="any" value="0" required /><span>٪</span>
                   </div>
                 </div>
               </div>
@@ -582,7 +598,7 @@
                 <div class="field">
                   <label for="simulation-inflation">تورم سناریو</label>
                   <div class="unit-input">
-                    <input id="simulation-inflation" type="number" min="-20" max="300" value="۳۰" /><span>٪</span>
+                    <input id="simulation-inflation" type="number" min="-20" max="300" step="any" value="30" required /><span>٪</span>
                   </div>
                 </div>
                 <div class="field">
@@ -734,22 +750,22 @@
               <summary class="section-heading collapsible-summary">
                 <div>
                   <span class="kicker">۵. سابقه شخصی</span>
-                  <h2>برنامه‌ها و ارزش تقریبی سبد</h2>
+                  <h2>نسخه‌های ذخیره‌شده برنامه</h2>
                 </div>
                 <span class="info-chip">روی همین دستگاه</span>
               </summary>
               <div class="collapsible-content">
                 <div class="section-actions">
-                  <span class="panel-intro">تاریخچه پیشنهادها و فایل پشتیبان را همین‌جا مدیریت کن.</span>
+                  <span class="panel-intro">این بخش فقط برنامه‌های پیشنهادی را نگه می‌دارد؛ با آن تراکنش یا سرمایه‌گذاری ثبت نمی‌شود.</span>
                   <div class="history-actions">
-                    <button id="export-history" class="secondary-button" type="button">خروجی</button
-                    ><button id="import-history" class="secondary-button" type="button">ورود</button
+                    <button id="export-history" class="secondary-button" type="button">خروجی برنامه‌ها</button
+                    ><button id="import-history" class="secondary-button" type="button">ورود برنامه‌ها</button
                     ><button id="clear-history" class="text-button" type="button">پاک کردن برنامه‌ها</button
                     ><input id="history-file" type="file" accept="application/json,.json" hidden />
                   </div>
                 </div>
                 <div id="history-transfer-status" class="transfer-status transfer-neutral" aria-live="polite">
-                  فایل خروجی فقط روی همین دستگاه ساخته می‌شود؛ دفتر پرتفوی جداست.
+                  خروجی این بخش فقط شامل برنامه‌های ذخیره‌شده است؛ برای همه داده‌های شخصی از تنظیمات پشتیبان کامل بساز.
                 </div>
                 <div id="history-summary" class="metric-grid"></div>
                 <div id="history-chart" class="chart-box">
@@ -941,7 +957,7 @@
                     مقدار و زمان معامله را ثبت کن. اگر نماد قیمت خودکار ندارد، قیمت خرید را وارد کن و برای ارزش امروز از
                     فرم «ثبت قیمت دستی» کمک بگیر.
                   </p>
-                  <form id="portfolio-market-asset-form" class="stock-entry-form">
+                  <form id="portfolio-market-asset-form" class="stock-entry-form" novalidate>
                     <div class="field">
                       <label for="portfolio-market-asset">دارایی ثبت‌شده</label
                       ><select id="portfolio-market-asset"></select>
@@ -963,26 +979,39 @@
                           type="text"
                           inputmode="decimal"
                           data-number-input
+                          aria-describedby="portfolio-market-error"
                           placeholder="مثلا ۰٫۰۱"
                         /><span id="portfolio-market-asset-unit">واحد</span>
                       </div>
                     </div>
                     <div class="field">
-                      <label for="portfolio-market-date">زمان خرید (تا دقیقه)</label
-                      ><input id="portfolio-market-date" type="datetime-local" step="60" required />
+                      <label id="portfolio-market-date-label" for="portfolio-market-date">زمان خرید (تا دقیقه)</label
+                      ><input
+                        id="portfolio-market-date"
+                        type="datetime-local"
+                        step="60"
+                        required
+                        aria-describedby="portfolio-market-error"
+                      />
                     </div>
-                    <div id="portfolio-market-acquisition-fields" class="field is-hidden">
-                      <label for="portfolio-market-acquisition-price">بهای خرید هر واحد (تومان)</label
+                    <div id="portfolio-market-acquisition-fields" class="field">
+                      <label for="portfolio-market-acquisition-price">بهای واقعی خرید هر واحد (اختیاری، تومان)</label
                       ><input
                         id="portfolio-market-acquisition-price"
                         type="text"
                         inputmode="decimal"
                         data-number-input
-                        placeholder="قیمت واقعی هر واحد"
+                        aria-describedby="portfolio-market-error portfolio-market-acquisition-hint"
+                        placeholder="فقط اگر رسید داری"
                       /><small id="portfolio-market-acquisition-hint"
-                        >برای نماد تازه یا تاریخ بدون قیمت، بهای واقعی را وارد کن.</small
+                        >اگر بهای واقعی را نمی‌دانی، خالی بگذار؛ قیمت مرجع فقط برآورد است و در نبود آن بهای تمام‌شده نامشخص می‌ماند.</small
                       >
+                      <label id="portfolio-market-reference-estimate-field" class="check-line is-hidden">
+                        <input id="portfolio-market-use-reference-estimate" type="checkbox" />
+                        <span>قیمت مرجع را فقط به‌عنوان برآورد بهای تمام‌شده ثبت کن</span>
+                      </label>
                     </div>
+                    <div id="portfolio-market-error" class="data-note data-note-warning" data-form-error role="alert" hidden></div>
                     <button class="secondary-button" type="submit">ثبت در دفتر تراکنش</button>
                   </form>
                   <div id="portfolio-stock-list" class="stock-list"></div>
@@ -993,19 +1022,33 @@
                     قیمت ثبت‌شده موجودی را تغییر نمی‌دهد. آخرین قیمت دستی تا زمانی که قیمت خودکار معتبر و با زمان
                     مشاهده‌ی جدیدتر برسد برای ارزش‌گذاری استفاده می‌شود.
                   </p>
-                  <form id="manual-quote-form" class="stock-entry-form">
+                  <form id="manual-quote-form" class="stock-entry-form" novalidate>
                     <div class="field">
                       <label for="manual-quote-asset">دارایی</label
                       ><select id="manual-quote-asset"></select>
                     </div>
                     <div class="field">
                       <label for="manual-quote-price">قیمت هر واحد (تومان)</label
-                      ><input id="manual-quote-price" type="text" inputmode="decimal" data-number-input required />
+                      ><input
+                        id="manual-quote-price"
+                        type="text"
+                        inputmode="decimal"
+                        data-number-input
+                        required
+                        aria-describedby="manual-quote-error"
+                      />
                     </div>
                     <div class="field">
                       <label for="manual-quote-date">زمان مشاهده‌ی قیمت (تا دقیقه)</label
-                      ><input id="manual-quote-date" type="datetime-local" step="60" required />
+                      ><input
+                        id="manual-quote-date"
+                        type="datetime-local"
+                        step="60"
+                        required
+                        aria-describedby="manual-quote-error"
+                      />
                     </div>
+                    <div id="manual-quote-error" class="data-note data-note-warning" data-form-error role="alert" hidden></div>
                     <button class="secondary-button" type="submit">ثبت قیمت در تاریخچه</button>
                   </form>
                   <div id="portfolio-manual-price-log" class="history-list"></div>
@@ -1032,7 +1075,8 @@
                   <p class="panel-intro">
                     برای کنترل دقیق‌تر، خرید، فروش، سود نقدی، انتقال، اصلاح، واریز و برداشت را با تاریخ واقعی ثبت کن.
                   </p>
-                  <form id="advanced-transaction-form" class="transaction-form">
+                  <form id="advanced-transaction-form" class="transaction-form" novalidate>
+                    <div id="advanced-transaction-error" class="data-note data-note-warning" role="alert" hidden></div>
                     <div class="field">
                       <label for="advanced-type">نوع تراکنش</label
                       ><select id="advanced-type">
@@ -1042,10 +1086,12 @@
                         <option value="DIVIDEND">سود نقدی</option>
                         <option value="TRANSFER">انتقال</option>
                         <option value="ADJUSTMENT">اصلاح</option>
+                        <option value="BASIS_CORRECTION">ثبت بهای واقعی با رسید</option>
                         <option value="DEPOSIT">واریز</option>
                         <option value="WITHDRAWAL">برداشت</option>
                       </select>
                     </div>
+                    <p id="advanced-sale-proceeds-note" class="small-note" hidden></p>
                     <div class="field">
                       <label for="advanced-asset">دارایی</label
                       ><select id="advanced-asset">
@@ -1069,16 +1115,16 @@
                       </select>
                     </div>
                     <div class="field">
-                      <label for="advanced-date">زمان تراکنش (تا دقیقه)</label
-                      ><input id="advanced-date" type="datetime-local" step="60" required />
+                      <label id="advanced-date-label" for="advanced-date">زمان تراکنش (تا دقیقه)</label
+                      ><input id="advanced-date" type="datetime-local" step="60" required aria-describedby="advanced-transaction-error" />
                     </div>
                     <div class="field">
                       <label id="advanced-quantity-label" for="advanced-quantity">مقدار</label
-                      ><input id="advanced-quantity" type="text" inputmode="decimal" data-number-input />
+                      ><input id="advanced-quantity" type="text" inputmode="decimal" data-number-input aria-describedby="advanced-transaction-error" />
                     </div>
                     <div class="field">
                       <label for="advanced-target-quantity">مقدار مقصد</label
-                      ><input id="advanced-target-quantity" type="text" inputmode="decimal" data-number-input />
+                      ><input id="advanced-target-quantity" type="text" inputmode="decimal" data-number-input aria-describedby="advanced-transaction-error" />
                     </div>
                     <div class="field">
                       <label for="advanced-unit-price">قیمت واحد</label
@@ -1087,12 +1133,13 @@
                         type="text"
                         inputmode="decimal"
                         data-number-input
+                        aria-describedby="advanced-transaction-error"
                         placeholder="خالی = قیمت بازار"
                       />
                     </div>
                     <div class="field">
                       <label for="advanced-amount">مبلغ</label
-                      ><input id="advanced-amount" type="text" inputmode="decimal" data-number-input />
+                      ><input id="advanced-amount" type="text" inputmode="decimal" data-number-input aria-describedby="advanced-transaction-error" />
                     </div>
                     <div class="field">
                       <label for="advanced-fee">کارمزد</label
@@ -1145,8 +1192,8 @@
             <aside class="panel market-panel">
               <div class="section-heading">
                 <div>
-                  <span class="kicker">داده زنده</span>
-                  <h2>بازار الان</h2>
+                  <span class="kicker">وضعیت قیمت</span>
+                  <h2>قیمت‌های بازار</h2>
                 </div>
                 <button id="refresh-market" class="icon-button" type="button" aria-label="به‌روزرسانی">↻</button>
               </div>
@@ -1200,9 +1247,10 @@
                 <h2 id="settings-view-title">تنظیمات</h2>
                 <p>ظاهر برنامه و داده‌های ذخیره‌شده روی همین مرورگر را مدیریت کن.</p>
               </div>
-              <span class="page-badge">محلی و قابل کنترل</span>
+              <div class="settings-page-actions"><span class="page-badge">محلی و قابل کنترل</span><button class="secondary-button" type="button" data-settings-focus="settings-backup-card">داده و پشتیبان</button></div>
             </div>
             <div class="settings-grid">
+              <h2 class="settings-group-heading">تنظیمات و ترجیحات</h2>
               <article class="panel settings-card appearance-settings-card">
                 <div class="section-heading">
                   <div>
@@ -1272,7 +1320,85 @@
                   حذف داده بازار ذخیره‌شده
                 </button>
               </article>
-              <form id="settings-model-form" class="panel settings-card settings-model-card">
+              <h2 class="settings-group-heading">داده و پشتیبان</h2>
+              <article class="panel settings-card sync-settings-card">
+                <div class="section-heading">
+                  <div>
+                    <span class="kicker">ذخیره‌سازی اختیاری</span>
+                    <h3>همگام‌سازی رمزگذاری‌شده</h3>
+                  </div>
+                  <span class="info-chip">اختیاری</span>
+                </div>
+                <p>
+                  داده‌های شخصی تا وقتی این گزینه را راه‌اندازی نکنی فقط در همین مرورگر می‌مانند. همگام‌سازی دستی است؛
+                  پروفایل، برنامه‌ها، دفتر پرتفوی، فرض‌های مدل و ترجیحات ظاهری با کلیدی که فقط خودت داری، پیش از ارسال
+                  رمزگذاری می‌شوند. کلید را در جای امن نگه دار؛ اگر گم شود بازیابی داده ممکن نیست.
+                </p>
+                <div class="field">
+                  <label for="sync-recovery-key">کلید بازیابی همگام‌سازی</label>
+                  <input
+                    id="sync-recovery-key"
+                    type="password"
+                    dir="ltr"
+                    autocomplete="off"
+                    autocapitalize="characters"
+                    spellcheck="false"
+                    placeholder="SYN1-…"
+                  />
+                </div>
+                <div class="settings-actions sync-actions">
+                  <button id="sync-create" class="secondary-button" type="button">راه‌اندازی روی این دستگاه</button>
+                  <button id="sync-connect" class="secondary-button" type="button">اتصال به نسخه‌ی موجود</button>
+                </div>
+                <div class="settings-actions sync-actions">
+                  <button id="sync-upload" class="secondary-button" type="button" disabled>
+                    ارسال تغییرات این دستگاه
+                  </button>
+                  <button id="sync-restore" class="secondary-button" type="button" disabled>
+                    بررسی و بازیابی نسخه‌ی ابری
+                  </button>
+                  <button id="sync-delete" class="text-button" type="button" disabled>حذف نسخه‌ی ابری</button>
+                  <button id="sync-disconnect" class="text-button" type="button" disabled>قطع اتصال این دستگاه</button>
+                </div>
+                <pre id="sync-recovery-output" class="sync-recovery-output" dir="ltr" hidden></pre>
+                <button id="sync-copy-recovery" class="text-button" type="button" hidden>کپی کلید بازیابی</button>
+                <div id="sync-status" class="transfer-status transfer-neutral" role="status" aria-live="polite">
+                  همگام‌سازی خاموش است؛ داده‌ها فقط در این مرورگر ذخیره می‌شوند.
+                </div>
+              </article>
+              <article id="settings-backup-card" tabindex="-1" class="panel settings-card">
+                <div class="section-heading">
+                  <div>
+                    <span class="kicker">پشتیبان</span>
+                    <h3>پشتیبان کامل داده‌های شخصی</h3>
+                  </div>
+                </div>
+                <p>پشتیبان کامل شامل پروفایل و حقوق، برنامه‌های ذخیره‌شده، دفتر تراکنش و قیمت‌های دستی، فرض‌های مدل و ترجیحات ظاهری است. کلیدهای ارائه‌دهنده، کوکی‌ها، cache بازار و کلید بازیابی همگام‌سازی در فایل نیستند.</p>
+                <div id="settings-data-status" class="transfer-status transfer-neutral" role="status" aria-live="polite"></div>
+                <div class="settings-actions">
+                  <button id="settings-export-data" class="secondary-button" type="button">ساخت فایل پشتیبان کامل</button
+                  ><button id="settings-import-data" class="secondary-button" type="button">پیش‌نمایش و بازیابی</button
+                  ><input id="settings-file" type="file" accept="application/json,.json" hidden />
+                </div>
+                <div id="settings-transfer-status" class="transfer-status transfer-neutral" aria-live="polite">
+                  وضعیت ورود و خروج داده اینجا نمایش داده می‌شود.
+                </div>
+              </article>
+              <article class="panel settings-card danger-card">
+                <div class="section-heading">
+                  <div>
+                    <span class="kicker">بازنشانی</span>
+                    <h3>حذف داده‌های محلی</h3>
+                  </div>
+                </div>
+                <p>
+                  این کار تاریخچه برنامه، دفتر پرتفوی، پروفایل و cache بازار را از همین مرورگر حذف می‌کند و قابل بازگشت
+                  نیست مگر فایل پشتیبان داشته باشی.
+                </p>
+                <button id="settings-reset-all" class="text-button" type="button">حذف همه داده‌های محلی</button>
+              </article>
+              <h2 class="settings-group-heading">فرض‌های مدل</h2>
+              <form id="settings-model-form" class="panel settings-card settings-model-card" novalidate>
                 <div class="section-heading">
                   <div>
                     <span class="kicker">پیش‌فرض برنامه‌ها</span>
@@ -1287,7 +1413,7 @@
                   <div class="field">
                     <label for="settings-inflation-rate">تورم سالانه‌ی مدل</label>
                     <div class="unit-input">
-                      <input id="settings-inflation-rate" type="number" min="-20" max="300" value="۳۰" /><span>٪</span>
+                      <input id="settings-inflation-rate" type="number" min="-20" max="300" step="any" value="30" required /><span>٪</span>
                     </div>
                     <small id="settings-inflation-source">منبع تورم هنوز دریافت نشده.</small
                     ><button id="refresh-inflation" class="text-button" type="button">
@@ -1297,7 +1423,7 @@
                   <div class="field">
                     <label for="settings-contribution-growth">رشد سالانه‌ی واریز</label>
                     <div class="unit-input">
-                      <input id="settings-contribution-growth" type="number" min="-50" max="200" value="۰" /><span
+                      <input id="settings-contribution-growth" type="number" min="-50" max="200" step="any" value="0" required /><span
                         >٪</span
                       >
                     </div>
@@ -1314,7 +1440,7 @@
                   <div class="field">
                     <label for="settings-drift-threshold">آستانه انحراف هدف برای واریز جدید</label>
                     <div class="unit-input">
-                      <input id="settings-drift-threshold" type="number" min="0" max="25" step="0.5" value="3" /><span
+                      <input id="settings-drift-threshold" type="number" min="0" max="25" step="any" value="3" required /><span
                         >واحد درصد</span
                       >
                     </div>
@@ -1349,6 +1475,7 @@
                   فرض‌های مدل در همین مرورگر ذخیره می‌شوند.
                 </div>
               </form>
+              <h2 class="settings-group-heading">منابع پیشرفته</h2>
               <form id="provider-key-form" class="panel settings-card">
                 <div class="section-heading">
                   <div>
@@ -1446,81 +1573,7 @@
                   >
                 </p>
               </form>
-              <article class="panel settings-card sync-settings-card">
-                <div class="section-heading">
-                  <div>
-                    <span class="kicker">ذخیره‌سازی اختیاری</span>
-                    <h3>همگام‌سازی رمزگذاری‌شده</h3>
-                  </div>
-                  <span class="info-chip">اختیاری</span>
-                </div>
-                <p>
-                  داده‌های شخصی تا وقتی این گزینه را راه‌اندازی نکنی فقط در همین مرورگر می‌مانند. همگام‌سازی دستی است؛
-                  پروفایل، برنامه‌ها، دفتر پرتفوی، فرض‌های مدل و ترجیحات ظاهری با کلیدی که فقط خودت داری، پیش از ارسال
-                  رمزگذاری می‌شوند. کلید را در جای امن نگه دار؛ اگر گم شود بازیابی داده ممکن نیست.
-                </p>
-                <div class="field">
-                  <label for="sync-recovery-key">کلید بازیابی همگام‌سازی</label>
-                  <input
-                    id="sync-recovery-key"
-                    type="password"
-                    dir="ltr"
-                    autocomplete="off"
-                    autocapitalize="characters"
-                    spellcheck="false"
-                    placeholder="SYN1-…"
-                  />
-                </div>
-                <div class="settings-actions sync-actions">
-                  <button id="sync-create" class="secondary-button" type="button">راه‌اندازی روی این دستگاه</button>
-                  <button id="sync-connect" class="secondary-button" type="button">اتصال به نسخه‌ی موجود</button>
-                </div>
-                <div class="settings-actions sync-actions">
-                  <button id="sync-upload" class="secondary-button" type="button" disabled>
-                    ارسال تغییرات این دستگاه
-                  </button>
-                  <button id="sync-restore" class="secondary-button" type="button" disabled>
-                    بررسی و بازیابی نسخه‌ی ابری
-                  </button>
-                  <button id="sync-delete" class="text-button" type="button" disabled>حذف نسخه‌ی ابری</button>
-                  <button id="sync-disconnect" class="text-button" type="button" disabled>قطع اتصال این دستگاه</button>
-                </div>
-                <pre id="sync-recovery-output" class="sync-recovery-output" dir="ltr" hidden></pre>
-                <button id="sync-copy-recovery" class="text-button" type="button" hidden>کپی کلید بازیابی</button>
-                <div id="sync-status" class="transfer-status transfer-neutral" role="status" aria-live="polite">
-                  همگام‌سازی خاموش است؛ داده‌ها فقط در این مرورگر ذخیره می‌شوند.
-                </div>
-              </article>
-              <article class="panel settings-card">
-                <div class="section-heading">
-                  <div>
-                    <span class="kicker">پشتیبان</span>
-                    <h3>خروجی و ورود داده</h3>
-                  </div>
-                </div>
-                <p>تاریخچه برنامه و دفتر تراکنش در یک فایل JSON قابل انتقال ذخیره می‌شوند.</p>
-                <div class="settings-actions">
-                  <button id="settings-export-data" class="secondary-button" type="button">خروجی داده</button
-                  ><button id="settings-import-data" class="secondary-button" type="button">ورود داده</button
-                  ><input id="settings-file" type="file" accept="application/json,.json" hidden />
-                </div>
-                <div id="settings-transfer-status" class="transfer-status transfer-neutral" aria-live="polite">
-                  وضعیت ورود و خروج داده اینجا نمایش داده می‌شود.
-                </div>
-              </article>
-              <article class="panel settings-card danger-card">
-                <div class="section-heading">
-                  <div>
-                    <span class="kicker">بازنشانی</span>
-                    <h3>حذف داده‌های محلی</h3>
-                  </div>
-                </div>
-                <p>
-                  این کار تاریخچه برنامه، دفتر پرتفوی، پروفایل و cache بازار را از همین مرورگر حذف می‌کند و قابل بازگشت
-                  نیست مگر فایل پشتیبان داشته باشی.
-                </p>
-                <button id="settings-reset-all" class="text-button" type="button">حذف همه داده‌های محلی</button>
-              </article>
+
               <article class="panel settings-card">
                 <div class="section-heading">
                   <div>

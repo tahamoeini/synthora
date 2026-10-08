@@ -943,10 +943,18 @@ html[dir="ltr"] .primary-button b {
 }
 .contribution-row > span {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 7px;
+  min-width: 0;
+  flex: 1 1 0;
+}
+.contribution-row > span small {
+  flex: 1 1 100%;
 }
 .contribution-row strong {
+  flex: 0 0 auto;
+  text-align: end;
   font-size: max(12px, 0.7rem);
 }
 .analysis-panel {
@@ -1773,6 +1781,32 @@ html[data-theme="dark"] .secondary-button:hover {
 }
 
 /* Application shell and internal views. */
+.app-loading {
+  display: none;
+}
+html[data-hydrating="true"] #app-shell {
+  visibility: hidden;
+}
+html[data-hydrating="true"] .app-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: var(--ink);
+  background: var(--bg);
+  text-align: center;
+}
+.app-loading [data-loading-locale] {
+  display: none;
+}
+html[lang="fa"] .app-loading [data-loading-locale="fa"],
+html[lang="en"] .app-loading [data-loading-locale="en"],
+html[lang="ru"] .app-loading [data-loading-locale="ru"],
+html[lang="zh-CN"] .app-loading [data-loading-locale="zh"] {
+  display: block;
+}
 .app-shell {
   display: grid;
   grid-template-columns: 270px minmax(0, 1fr);
@@ -1841,6 +1875,10 @@ html[dir="ltr"] .app-shell.is-sidebar-collapsed .sidebar-toggle {
   gap: 5px;
   margin-top: 26px;
 }
+.nav-group {
+  display: grid;
+  gap: 2px;
+}
 .app-navigation button {
   display: flex;
   align-items: center;
@@ -1907,6 +1945,35 @@ html[dir="ltr"] .app-navigation button.is-active {
   opacity: 0.76;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.app-navigation .nav-subitem {
+  min-height: 44px;
+  width: calc(100% - 42px);
+  margin-inline-start: 42px;
+  padding: 8px 12px;
+  border-radius: 11px;
+  font-size: max(12px, 0.7rem);
+}
+.app-navigation .nav-subitem.is-active {
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+}
+.app-shell.is-sidebar-collapsed .app-navigation .nav-subitem {
+  width: 44px;
+  margin: 0 auto;
+  padding: 0;
+  justify-content: center;
+  font-size: 0;
+}
+.app-shell.is-sidebar-collapsed .app-navigation .nav-subitem::before {
+  font-size: 16px;
+  line-height: 1;
+}
+.app-shell.is-sidebar-collapsed .app-navigation .nav-subitem[data-nav-view="history"]::before {
+  content: "◷";
+}
+.app-shell.is-sidebar-collapsed .app-navigation .nav-subitem[data-nav-view="assets"]::before {
+  content: "◇";
 }
 .sidebar-footer {
   display: grid;
@@ -2202,6 +2269,24 @@ html[dir="ltr"] .app-navigation button.is-active {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
 }
+.settings-group-heading {
+  grid-column: 1 / -1;
+  margin: 10px 0 -6px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  font-size: var(--font-subheading);
+}
+.settings-page-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.settings-page-actions .secondary-button {
+  min-height: 42px;
+}
 .settings-card .text-button {
   margin-top: 12px;
 }
@@ -2469,6 +2554,11 @@ html[dir="ltr"] .app-navigation button.is-active {
 .dashboard-secondary-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
+.dashboard-summary-grid.is-hidden,
+.dashboard-main-grid.is-hidden,
+.dashboard-secondary-grid.is-hidden {
+  display: none;
+}
 .dashboard-card {
   box-shadow: 0 12px 34px rgba(21, 48, 61, 0.045);
 }
@@ -2573,6 +2663,40 @@ html[dir="ltr"] .app-navigation button.is-active {
 .chart-legend {
   justify-content: center;
   margin-top: -2px;
+}
+.chart-data-details {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: var(--font-caption);
+}
+.chart-data-details > summary {
+  width: fit-content;
+  min-height: 36px;
+  padding: 6px 0;
+  cursor: pointer;
+  color: var(--primary);
+  font-weight: 700;
+}
+.chart-data-table-wrap {
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.chart-data-table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  white-space: nowrap;
+}
+.chart-data-table-wrap caption {
+  padding: 8px;
+  text-align: start;
+}
+.chart-data-table-wrap th,
+.chart-data-table-wrap td {
+  padding: 7px 10px;
+  border-top: 1px solid var(--line);
+  text-align: start;
 }
 .chart-legend span,
 .chart-footnote span {
@@ -2953,6 +3077,11 @@ html[dir="ltr"] .app-navigation button.is-active {
 }
 .plan-workspace .setup-panel {
   min-width: 0;
+}
+@media (max-width: 1440px) {
+  .plan-workspace .output-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .analysis-disclosure-grid {
   display: grid;
@@ -3877,15 +4006,33 @@ summary {
 }
 .holdings-table {
   width: 100%;
-  min-width: 980px;
+  min-width: 0;
+  table-layout: fixed;
   border-collapse: collapse;
 }
+.holdings-table th:nth-child(1),
+.holdings-table td:nth-child(1) { width: 16%; }
+.holdings-table th:nth-child(2),
+.holdings-table td:nth-child(2) { width: 9%; }
+.holdings-table th:nth-child(3),
+.holdings-table td:nth-child(3) { width: 13%; }
+.holdings-table th:nth-child(4),
+.holdings-table td:nth-child(4) { width: 14%; }
+.holdings-table th:nth-child(5),
+.holdings-table td:nth-child(5) { width: 13%; }
+.holdings-table th:nth-child(6),
+.holdings-table td:nth-child(6) { width: 9%; }
+.holdings-table th:nth-child(7),
+.holdings-table td:nth-child(7) { width: 10%; }
+.holdings-table th:nth-child(8),
+.holdings-table td:nth-child(8) { width: 16%; }
 .holdings-table th,
 .holdings-table td {
-  padding: 10px 12px;
+  padding: 9px 8px;
   border-bottom: 1px solid var(--line);
   text-align: start;
   vertical-align: top;
+  overflow-wrap: anywhere;
 }
 .holdings-table thead th {
   position: sticky;
@@ -3894,7 +4041,7 @@ summary {
   background: var(--surface-muted);
   color: var(--muted);
   font-size: var(--font-caption);
-  white-space: nowrap;
+  white-space: normal;
 }
 .holdings-table thead button {
   padding: 2px 0;
@@ -4347,8 +4494,70 @@ html[data-theme="dark"] .market-page {
   max-width: 100%;
   overscroll-behavior-inline: contain;
 }
-.holdings-table td {
-  overflow-wrap: anywhere;
+@media (max-width: 800px) {
+  .holdings-table-scroll {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+  .holdings-table,
+  .holdings-table tbody {
+    display: block;
+    width: 100%;
+  }
+  .holdings-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .holdings-table tbody tr:not(:has(.holdings-empty)) {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 12px;
+    margin-block-end: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+  .holdings-table tbody tr:not(:has(.holdings-empty)) > th,
+  .holdings-table tbody tr:not(:has(.holdings-empty)) > td {
+    width: auto;
+  }
+  .holdings-table tbody tr:not(:has(.holdings-empty)) th[scope="row"] {
+    grid-column: 1 / -1;
+    padding: 4px 0 9px;
+    border-bottom: 1px solid var(--line);
+  }
+  .holdings-table tbody tr:not(:has(.holdings-empty)) td {
+    display: grid;
+    align-content: start;
+    gap: 3px;
+    min-width: 0;
+    padding: 8px 0;
+    border: 0;
+    font-size: var(--font-caption);
+  }
+  .holdings-table tbody tr:not(:has(.holdings-empty)) td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: var(--font-caption);
+    font-weight: 700;
+  }
+  .holdings-table tbody tr:not(:has(.holdings-empty)) td:last-child {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--line);
+  }
+  .holdings-table .holdings-empty {
+    display: block;
+    width: auto;
+  }
 }
 .chart-box,
 .line-chart {

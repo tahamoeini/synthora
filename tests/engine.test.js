@@ -15,8 +15,18 @@ import {
   simulatePlan,
   walkForwardValidation,
 } from "../src/engine.js";
-import { createHistoryExport, mergeHistory, parseHistoryExport, sanitizeHistoryEntry } from "../src/history.js";
 import {
+  createHistoryExport,
+  createPersonalBackup,
+  createPlanHistoryRecord,
+  mergeHistory,
+  parseHistoryExport,
+  parsePersonalBackup,
+  sanitizeHistoryEntry,
+} from "../src/history.js";
+import { SIMULATION_ASSET_KEYS } from "../src/market/catalog.js";
+import {
+  activePortfolioVersion,
   appendTransactions,
   calculatePortfolio,
   createPortfolioAsset,
@@ -169,6 +179,24 @@ test("new contributions close allocation gaps without selling", () => {
   assert.ok(plan.amounts.silver > 0);
 });
 
+test("contribution weights, target weights, and current portfolio deviation use separate denominators", () => {
+  const plan = contributionRebalance(
+    { fixed: 0, gold: 100, silver: 0 },
+    { fixed: 74, gold: 14, silver: 12 },
+    100,
+    ["fixed", "gold", "silver"],
+  );
+  assert.equal(plan.currentWeights.gold, 100);
+  assert.ok(Math.abs(plan.targetWeights.gold - 14) < 1e-10);
+  assert.equal(plan.deviationPercentagePoints.gold, 86);
+  assert.equal(plan.contributionWeights.gold, 0);
+  assert.ok(Math.abs(plan.contributionWeights.fixed + plan.contributionWeights.silver - 100) < 1e-10);
+  assert.equal(plan.contributionAmounts.gold, 0);
+  assert.ok(Math.abs(plan.contributionAmounts.fixed - 86) < 0.02);
+  assert.ok(Math.abs(plan.contributionAmounts.silver - 14) < 0.02);
+  assert.ok(Math.abs(Object.values(plan.contributionAmounts).reduce((sum, amount) => sum + amount, 0) - 100) < 1e-10);
+});
+
 test("historical backtest returns requested risk metrics", () => {
   const result = backtestHistorical({
     market,
@@ -207,6 +235,27 @@ test("backtest uses observed copper history and refuses assumption-filled crypto
   assert.equal(missing.available, false);
   assert.equal(missing.estimated, false);
   assert.deepEqual(missing.unobservedAssets, ["bitcoin"]);
+});
+
+test("backtest reports monthly observed ranges and the longest continuous selected-asset overlap", () => {
+  const prices = series(100, 0.02, 36).filter((point) => {
+    const date = new Date(point.date);
+    const monthIndex = (date.getUTCFullYear() - 2020) * 12 + date.getUTCMonth();
+    return ![10, 11, 12].includes(monthIndex);
+  });
+  const result = backtestHistorical({
+    market: { history: { gold: prices } },
+    allocation: { gold: 100 },
+    initialInvestment: 1000,
+    horizonYears: 2,
+  });
+  assert.equal(result.available, false);
+  assert.equal(result.reason, "insufficient-continuous-overlap");
+  assert.equal(result.frequency, "monthly");
+  assert.deepEqual(result.requiredAssets, ["gold"]);
+  assert.equal(result.longestContinuousMonths, 22);
+  assert.equal(result.rangesByAsset.gold.length, 2);
+  assert.equal(result.jointRanges.length, 2);
 });
 
 test("Monte Carlo returns ordered percentile outputs", () => {
@@ -442,6 +491,68 @@ test("history export preserves quote provenance while accepting legacy snapshots
   ]);
   assert.equal(oldSnapshot.records[0].marketSnapshot.assets.dollar.price, 500000);
   assert.equal(oldSnapshot.records[0].weights.ethereum, 0);
+});
+
+test("full personal backup round-trips plans and actual ledger separately and excludes unknown profile secrets", () => {
+  const createdAt = "2026-10-07T12:00:00.000Z";
+  const planRecord = createPlanHistoryRecord(
+    {
+      inputs: { monthlyContribution: 1000, contributionRate: 10, salary: 10000, profile: { goal: "growth" } },
+      recommendation: { weights: { fixed: 100 } },
+      contribution: {
+        contributionAmounts: { fixed: 1000 },
+        contributionWeights: { fixed: 100 },
+        currentWeights: { fixed: 0 },
+        deviationPercentagePoints: { fixed: -100 },
+      },
+    },
+    [],
+    createdAt,
+  );
+  let portfolio = createEmptyPortfolio(createdAt);
+  const opening = createTransaction(
+    { type: "OPENING", assetId: "gold", quantity: 2, unitPrice: 100, costBasisStatus: "confirmed", date: createdAt },
+    null,
+    createdAt,
+    portfolio,
+  );
+  portfolio = appendTransactions(portfolio, [opening]).portfolio;
+  const settings = {
+    version: 3,
+    inflationRate: 0.3,
+    contributionGrowth: 0,
+    paths: 2000,
+    rebalance: true,
+    targetDriftThresholdPercent: 3,
+    assumptions: Object.fromEntries(SIMULATION_ASSET_KEYS.map((assetId) => [assetId, DEFAULT_ASSUMPTIONS[assetId]])),
+    transactionCosts: Object.fromEntries(
+      SIMULATION_ASSET_KEYS.map((assetId) => [assetId, { buyFee: null, sellFee: null, spread: null }]),
+    ),
+    inflationSource: null,
+    inflationPeriod: null,
+    inflationFetchedAt: null,
+  };
+  const backup = createPersonalBackup({
+    profile: { salary: 10000, contributionRate: 10, apiKey: "must-not-export" },
+    history: [planRecord],
+    portfolio,
+    modelSettings: settings,
+    preferences: { locale: "en", currency: "USD", theme: "dark" },
+  });
+  const serialized = JSON.stringify(backup);
+  assert.equal(serialized.includes("must-not-export"), false);
+  assert.equal(serialized.includes("apiKey"), false);
+  const restored = parsePersonalBackup(JSON.parse(serialized));
+  assert.equal(restored.history[0].executionStatus, "not-linked");
+  assert.equal(restored.history[0].plannedMonthlyAmount, 1000);
+  assert.equal(activePortfolioVersion(restored.portfolio).transactions.length, 1);
+  assert.equal(activePortfolioVersion(restored.portfolio).transactions[0].type, "OPENING");
+  assert.equal(restored.profile.salary, 10000);
+  assert.deepEqual(restored.preferences, { locale: "en", currency: "USD", theme: "dark" });
+  assert.throws(
+    () => parsePersonalBackup({ ...backup, modelSettings: { ...backup.modelSettings, inflationRate: 10 } }),
+    /invalid-settings-format/,
+  );
 });
 
 test("legacy rate records are accepted and invalid records are skipped", () => {

@@ -8,6 +8,7 @@ import {
   createPortfolioAsset,
   createEmptyPortfolio,
   createTransaction,
+  ledgerState,
   marketPriceAt,
   portfolioContributionSeries,
   portfolioCostBasis,
@@ -300,7 +301,7 @@ test("invalid quote timestamps stay unknown when portfolio records are normalize
   assert.equal(quote.retrievedAt, null);
 });
 
-test("portfolio refuses a market asset entry when no valid price exists", () => {
+test("quantity-only market asset setup remains available when no valid price exists", () => {
   const now = "2026-09-20T00:00:00.000Z";
   const portfolio = createEmptyPortfolio(now);
   const transaction = createTransaction(
@@ -314,7 +315,90 @@ test("portfolio refuses a market asset entry when no valid price exists", () => 
     now,
     portfolio,
   );
-  assert.equal(transaction, null);
+  assert.equal(transaction.costBasisStatus, "unknown");
+  assert.equal(transaction.unitPrice, undefined);
+  const saved = appendTransactions(portfolio, [transaction]).portfolio;
+  const valuation = calculatePortfolio(saved, { updatedAt: now, assets: {}, history: {} }, now);
+  assert.equal(valuation.values.platinum.value, null);
+  assert.equal(valuation.profitLoss, null);
+  assert.equal(valuation.sleeveValues, null);
+  assert.equal(Object.values(valuation.partialSleeveValues).every((value) => value === 0), true);
+  assert.equal(valuation.currentValue, null);
+  assert.deepEqual(valuation.missingPrices, ["platinum"]);
+});
+
+test("manual quote restores a clearly identified partial valuation without changing the ledger", () => {
+  const now = "2026-09-20T00:00:00.000Z";
+  const portfolio = createEmptyPortfolio(now);
+  const transaction = createTransaction(
+    { type: "OPENING", assetId: "gold", quantity: 1, costBasisStatus: "unknown", date: now },
+    {},
+    now,
+    portfolio,
+  );
+  const saved = appendTransactions(portfolio, [transaction]).portfolio;
+  const unavailable = calculatePortfolio(saved, {}, now);
+  assert.equal(unavailable.currentValue, null);
+  const withManualQuote = {
+    ...saved,
+    manualQuotes: [{ assetId: "gold", price: 120, observedAt: now, createdAt: now, note: "Receipt check" }],
+  };
+  const restored = calculatePortfolio(withManualQuote, {}, now);
+  assert.equal(restored.currentValue, 120);
+  assert.equal(restored.quoteQualityStatus, "manual");
+  assert.equal(restored.values.gold.manualPrice, true);
+  assert.equal(restored.profitLoss, null);
+  assert.equal(restored.transactions.length, 1);
+});
+
+test("quantity-only holdings never imply profit until an auditable basis correction is recorded", () => {
+  const openedAt = "2026-09-20T00:00:00.000Z";
+  const correctedAt = "2026-09-21T00:00:00.000Z";
+  const market = {
+    updatedAt: correctedAt,
+    assets: {
+      gold: {
+        price: 160,
+        status: "healthy",
+        confidence: "high",
+        sourceCount: 1,
+        configuredSourceCount: 1,
+        observedAt: correctedAt,
+        retrievedAt: correctedAt,
+      },
+    },
+    history: {},
+  };
+  let portfolio = createEmptyPortfolio(openedAt);
+  const opening = createTransaction(
+    { type: "OPENING", assetId: "gold", quantity: 2, costBasisStatus: "unknown", date: openedAt },
+    market,
+    openedAt,
+    portfolio,
+  );
+  portfolio = appendTransactions(portfolio, [opening]).portfolio;
+  const beforeCorrection = calculatePortfolio(portfolio, market, correctedAt);
+  assert.equal(beforeCorrection.currentValue, 320);
+  assert.equal(beforeCorrection.costBasisStatus, "unknown");
+  assert.equal(beforeCorrection.netInvestedStatus, "unavailable");
+  assert.equal(beforeCorrection.profitLoss, null);
+
+  const correction = createTransaction(
+    { type: "BASIS_CORRECTION", assetId: "gold", quantity: 2, amount: 250, date: correctedAt },
+    market,
+    correctedAt,
+    portfolio,
+  );
+  const appended = appendTransactions(portfolio, [correction], { action: "record-actual-cost", affectsHistory: true });
+  assert.equal(appended.validation.valid, true);
+  portfolio = appended.portfolio;
+  const afterCorrection = calculatePortfolio(portfolio, market, correctedAt);
+  assert.equal(afterCorrection.costBasisStatus, "confirmed");
+  assert.equal(afterCorrection.netInvested, 250);
+  assert.equal(afterCorrection.profitLoss, 70);
+  assert.equal(afterCorrection.cagr, null);
+  assert.equal(afterCorrection.returnRateAvailable, false);
+  assert.equal(afterCorrection.transactions.filter((transaction) => transaction.type === "BASIS_CORRECTION").length, 1);
 });
 
 test("conflicted live quotes are excluded from portfolio valuation", () => {
@@ -339,11 +423,67 @@ test("conflicted live quotes are excluded from portfolio valuation", () => {
   assert.deepEqual(valuation.missingPrices, ["bitcoin"]);
 });
 
+test("accepted estimates and stale quotes remain qualified in complete portfolio valuations", () => {
+  const now = "2026-09-20T12:00:00.000Z";
+  const portfolio = createEmptyPortfolio(now);
+  const opening = createTransaction(
+    { type: "OPENING", assetId: "gold", quantity: 1, costBasisStatus: "unknown", date: now },
+    {},
+    now,
+    portfolio,
+  );
+  const saved = appendTransactions(portfolio, [opening]).portfolio;
+  const estimatedMarket = {
+    updatedAt: now,
+    assets: {
+      gold: {
+        price: 100,
+        status: "provisional",
+        confidence: "medium",
+        quoteType: "derived",
+        sourceCount: 2,
+        configuredSourceCount: 3,
+        observedAt: now,
+        retrievedAt: now,
+      },
+    },
+    history: {},
+  };
+  const estimate = calculatePortfolio(saved, estimatedMarket, now);
+  assert.equal(estimate.currentValue, 100);
+  assert.equal(estimate.quoteQualityStatus, "accepted-estimate");
+  assert.equal(estimate.values.gold.quoteEligible, true);
+  assert.equal(estimate.profitLoss, null);
+
+  const stale = calculatePortfolio(
+    saved,
+    {
+      updatedAt: now,
+      assets: {
+        gold: {
+          price: 100,
+          status: "healthy",
+          confidence: "high",
+          sourceCount: 1,
+          configuredSourceCount: 1,
+          observedAt: "2026-09-20T07:00:00.000Z",
+          retrievedAt: now,
+        },
+      },
+      history: {},
+    },
+    now,
+  );
+  assert.equal(stale.currentValue, 100);
+  assert.equal(stale.quoteQualityStatus, "stale");
+  assert.equal(stale.values.gold.quoteQuality, "stale");
+});
+
 test("cost basis follows buys, average-cost sales, and transfers without changing ledger values", () => {
   const transactions = [
-    { type: "BUY", assetId: "gold", quantity: 2, unitPrice: 100, fee: 10, date: "2026-01-01" },
-    { type: "BUY", assetId: "gold", quantity: 1, unitPrice: 130, fee: 0, date: "2026-01-02" },
-    { type: "SELL", assetId: "gold", quantity: 1, unitPrice: 150, fee: 0, date: "2026-01-03" },
+    { type: "BUY", assetId: "gold", quantity: 2, unitPrice: 100, costBasisStatus: "confirmed", fee: 10, date: "2026-01-01" },
+    { type: "BUY", assetId: "gold", quantity: 1, unitPrice: 130, costBasisStatus: "confirmed", fee: 0, date: "2026-01-02" },
+    { type: "SELL", assetId: "gold", quantity: 1, unitPrice: 150, costBasisStatus: "confirmed", fee: 0, date: "2026-01-03" },
     { type: "TRANSFER", assetId: "gold", quantity: 1, targetAssetId: "silver", targetQuantity: 2, date: "2026-01-04" },
   ];
   const basis = portfolioCostBasis(transactions, "2026-01-05");
@@ -351,6 +491,10 @@ test("cost basis follows buys, average-cost sales, and transfers without changin
   assert.ok(Math.abs(basis.gold.basis - 340 / 3) < 1e-10);
   assert.equal(basis.silver.quantity, 2);
   assert.ok(Math.abs(basis.silver.basis - 340 / 3) < 1e-10);
+  const saleState = ledgerState(transactions.slice(0, 3), "2026-01-05");
+  assert.equal(saleState.holdings.cash, 0);
+  assert.equal(saleState.returned, 150);
+  assert.equal(saleState.netInvested, 190);
 });
 
 test("monthly contribution series uses only months with recorded ledger inflows", () => {
@@ -368,6 +512,27 @@ test("monthly contribution series uses only months with recorded ledger inflows"
     [105, 50],
   );
   assert.equal(series.length, 2);
+});
+
+test("monthly contribution buckets use UTC Gregorian boundaries and identify their calendar", () => {
+  const series = portfolioContributionSeries(
+    [
+      { type: "BUY", assetId: "gold", quantity: 1, unitPrice: 10, date: "2026-10-31T23:59:00.000Z" },
+      { type: "BUY", assetId: "gold", quantity: 1, unitPrice: 20, date: "2026-11-01T00:00:00.000Z" },
+    ],
+    "2026-11-30T23:00:00.000Z",
+    2,
+  );
+  assert.deepEqual(series.map((point) => [point.date.slice(0, 10), point.value, point.calendar]), [
+    ["2026-10-01", 10, "gregory"],
+    ["2026-11-01", 20, "gregory"],
+  ]);
+  assert.equal(
+    new Intl.DateTimeFormat("en-US-u-ca-gregory", { month: "long", timeZone: "UTC" }).format(
+      new Date("2026-10-01T00:00:00.000Z"),
+    ),
+    "October",
+  );
 });
 
 test("silver conflict values and a last-known reading stay outside current portfolio valuation", () => {
@@ -410,13 +575,20 @@ test("silver conflict values and a last-known reading stay outside current portf
   );
   assert.equal(lastKnown.price, 508750);
   assert.equal(valuation.values.silver.value, null);
-  assert.equal(valuation.currentValue, 0);
+  assert.equal(valuation.currentValue, null);
+  assert.equal(valuation.partialValue, 0);
   assert.deepEqual(valuation.missingPrices, ["silver"]);
 });
 
 test("all investable catalog assets and a named manual holding can be recorded in the ledger", () => {
   const now = "2026-09-23T18:00:00.000Z";
   let portfolio = createEmptyPortfolio(now);
+  assert.equal(PORTFOLIO_ASSETS.currency.unit, "USD");
+  assert.equal(PORTFOLIO_ASSETS.bitcoin.unit, "coin");
+  assert.equal(PORTFOLIO_ASSETS.ethereum.unit, "coin");
+  assert.equal(PORTFOLIO_ASSETS.tether.unit, "coin");
+  assert.equal(PORTFOLIO_ASSETS.gold.unit, "gram");
+  assert.equal(PORTFOLIO_ASSETS.silver.unit, "gram");
   const catalogIds = Object.values(PORTFOLIO_ASSETS)
     .filter((asset) => asset.isInvestable)
     .map((asset) => asset.id);

@@ -34,3 +34,35 @@ test("proposal previews wait for an explicit action before saving plan history",
   assert.match(app, /addEventListener\("click", savePlanPreview\)/);
   assert.match(app, /Object\.keys\(result\.assets \|\| \{\}\)/);
 });
+
+test("advanced transaction dates reach localized field validation", () => {
+  const form = index.match(/<form id="advanced-transaction-form"[\s\S]*?<\/form>/)?.[0] || "";
+  assert.match(form, /novalidate/);
+  assert.match(form, /id="advanced-transaction-error"[^>]*role="alert"/);
+  assert.match(form, /id="advanced-date"[^>]*aria-describedby="advanced-transaction-error"/);
+  assert.match(app, /if \(!date \|\| !dateTimeInputToIso\(date\)\)/);
+});
+
+test("primary holding and manual quote forms expose field-specific errors", () => {
+  const holdingForm = index.match(/<form id="portfolio-market-asset-form"[\s\S]*?<\/form>/)?.[0] || "";
+  const quoteForm = index.match(/<form id="manual-quote-form"[\s\S]*?<\/form>/)?.[0] || "";
+  for (const form of [holdingForm, quoteForm]) {
+    assert.match(form, /novalidate/);
+    assert.match(form, /role="alert"/);
+  }
+  assert.match(holdingForm, /id="portfolio-market-quantity"[^>]*aria-describedby="portfolio-market-error"/);
+  assert.match(holdingForm, /id="portfolio-market-date"[^>]*aria-describedby="portfolio-market-error"/);
+  assert.match(quoteForm, /id="manual-quote-price"[^>]*aria-describedby="manual-quote-error"/);
+  assert.match(app, /function showPortfolioFormError\(/);
+  assert.match(app, /clearPortfolioFormError\("#portfolio-market-asset-form"\)/);
+  assert.match(app, /clearPortfolioFormError\("#manual-quote-form"\)/);
+});
+
+test("holding dialog contains keyboard focus and restores it after close", () => {
+  assert.match(index, /<dialog id="asset-detail-drawer"/);
+  assert.match(app, /function containAssetDrawerTab\(event\)/);
+  assert.match(app, /document\.addEventListener\("keydown", containAssetDrawerTab, true\)/);
+  assert.match(app, /last\.focus\(\)/);
+  assert.match(app, /first\.focus\(\)/);
+  assert.match(app, /assetDrawerOpener\.focus\(\)/);
+});
