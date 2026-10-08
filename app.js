@@ -68,6 +68,8 @@ import {
 import { createLocalizedCatalog, translateCopy } from "./src/ui/localization.js";
 import { createNavigationController } from "./src/ui/navigation.js";
 import { createAppStore } from "./src/ui/state.js";
+import { runHydration } from "./src/ui/hydration.js";
+import { readStoredJson } from "./src/ui/storage.js";
 import { decryptSnapshot, encryptSnapshot, generateRecoveryKey, prepareSyncCredentials } from "./src/sync.js";
 
 const HISTORY_KEY = "investment-plan-history-v4";
@@ -130,9 +132,12 @@ const portfolioDonutEl = $("#portfolio-donut");
 const portfolioTransferStatusEl = $("#portfolio-transfer-status");
 const appStore = createAppStore();
 const appShell = AppShell(document);
-const navigationController = createNavigationController(appShell, appStore);
-
 let copy;
+let transferStatusFormatter = null;
+let transferStatusType = "neutral";
+const navigationController = createNavigationController(appShell, appStore, window, {
+  onUrlUpdateFailure: showNavigationWarning,
+});
 let uiPreferences = readUiPreferences();
 let fxData = null;
 let fxLoadPromise = null;
@@ -245,7 +250,7 @@ function translateVisibleCopy(root = document.body) {
   elements.forEach((element) => {
     if (element.closest?.("[data-user-content]")) return;
     const states = originalAttributesByElement.get(element) || {};
-    ["placeholder", "title", "aria-label"].forEach((name) => {
+    ["placeholder", "title", "aria-label", "alt", "label"].forEach((name) => {
       if (!element.hasAttribute(name)) return;
       const current = element.getAttribute(name) || "";
       const previous = states[name];
@@ -465,6 +470,9 @@ function syncUiPreferenceControls() {
 
 function rerenderLocalizedViews() {
   translateVisibleCopy();
+  refreshMarketStatusCopy();
+  refreshTransferStatusCopy();
+  renderSimulationWeightInputs();
   renderMarket(liveMarket, lastKnownMarket);
   renderHistory();
   renderPortfolio();
@@ -618,8 +626,20 @@ function showStorageWarning() {
   const error = $("#app-error");
   if (!error) return;
   error.hidden = false;
-  error.textContent =
-    "بخشی از داده‌های محلی قابل خواندن یا ذخیره نبود؛ برنامه با حالت امن و بدون حدس‌زدن عددها ادامه داد. اگر این داده‌ها مهم‌اند، فایل پشتیبان قبلی را وارد کن.";
+  error.textContent = text(
+    "app.storageWarning",
+    "Some local data could not be read or saved. Available data remains in place; review or restore a backup in Settings.",
+  );
+}
+
+function showNavigationWarning() {
+  const error = $("#app-error");
+  if (!error) return;
+  error.hidden = false;
+  error.textContent = text(
+    "navigation.urlUnavailable",
+    "This section opened, but the browser could not update the address or navigation history. Use the in-app menu to continue.",
+  );
 }
 
 function setStatus(label, type = "loading") {
@@ -627,14 +647,31 @@ function setStatus(label, type = "loading") {
   statusEl.className = `status-pill status-${type}`;
 }
 
+function refreshMarketStatusCopy() {
+  const { marketCacheDisabled, marketStatus } = appStore.getState();
+  const statusKey = marketCacheDisabled
+    ? "cacheDisabled"
+    : {
+        loading: "loading",
+        connected: "connected",
+        cached: "cached",
+        unavailable: "timeout",
+      }[marketStatus];
+  if (!statusKey) return;
+  const type =
+    statusKey === "loading" ? "loading" : ["connected", "cached"].includes(statusKey) ? "success" : "warning";
+  setStatus(text(`status.${statusKey}`, fallbackCopy.status[statusKey] || fallbackCopy.status.unavailable), type);
+}
+
 function readJson(key, fallback) {
-  try {
-    const value = JSON.parse(localStorage.getItem(key) || "null");
-    return value ?? fallback;
-  } catch {
-    storageWarning = true;
-    return fallback;
-  }
+  return readStoredJson(
+    () => localStorage,
+    key,
+    fallback,
+    () => {
+      storageWarning = true;
+    },
+  );
 }
 
 function writeJson(key, value) {
@@ -3056,12 +3093,17 @@ function applyModelSettingsToSimulation() {
 
 function renderSimulationWeightInputs() {
   const grid = $("#simulation-weight-grid");
-  if (!grid || grid.dataset.rendered === "true") return;
-  grid.innerHTML = SIMULATION_ASSET_KEYS.map((assetId) => {
-    const meta = assetMeta(assetId);
-    return `<div class="field"><label for="sim-weight-${escapeHTML(assetId)}">${escapeHTML(meta.title)}</label><div class="unit-input"><input id="sim-weight-${escapeHTML(assetId)}" type="number" min="0" max="100" step="0.1" value="${Number(DEFAULT_ALLOCATION[assetId]) || 0}"><span>٪</span></div></div>`;
-  }).join("");
-  grid.dataset.rendered = "true";
+  if (!grid) return;
+  if (grid.dataset.rendered !== "true") {
+    grid.innerHTML = SIMULATION_ASSET_KEYS.map((assetId) => {
+      const meta = assetMeta(assetId);
+      return `<div class="field"><label data-simulation-asset="${escapeHTML(assetId)}" for="sim-weight-${escapeHTML(assetId)}">${escapeHTML(meta.title)}</label><div class="unit-input"><input id="sim-weight-${escapeHTML(assetId)}" type="number" min="0" max="100" step="0.1" value="${Number(DEFAULT_ALLOCATION[assetId]) || 0}"><span>٪</span></div></div>`;
+    }).join("");
+    grid.dataset.rendered = "true";
+  }
+  grid.querySelectorAll("[data-simulation-asset]").forEach((label) => {
+    label.textContent = assetMeta(label.dataset.simulationAsset).title;
+  });
 }
 
 function renderSettingsAssumptions() {
@@ -3072,10 +3114,18 @@ function renderSettingsAssumptions() {
       `<div><strong>دارایی</strong><strong>بازده مؤثر سالانه‌ی فرضی</strong><strong>نوسان سالانه</strong></div>` +
       SIMULATION_ASSET_KEYS.map((assetId) => {
         const title = assetMeta(assetId).title;
-        return `<div><span>${escapeHTML(title)}</span><input id="settings-return-${escapeHTML(assetId)}" aria-label="بازده مؤثر سالانه‌ی فرضی ${escapeHTML(title)}" type="number" min="-99" max="300" step="any" required><input id="settings-vol-${escapeHTML(assetId)}" aria-label="نوسان فرضی ${escapeHTML(title)}" type="number" min="0" max="300" step="any" required></div>`;
+        return `<div data-settings-asset="${escapeHTML(assetId)}"><span>${escapeHTML(title)}</span><input id="settings-return-${escapeHTML(assetId)}" aria-label="بازده مؤثر سالانه‌ی فرضی ${escapeHTML(title)}" type="number" min="-99" max="300" step="any" required><input id="settings-vol-${escapeHTML(assetId)}" aria-label="نوسان فرضی ${escapeHTML(title)}" type="number" min="0" max="300" step="any" required></div>`;
       }).join("");
     assumptionGrid.dataset.rendered = "true";
   }
+  assumptionGrid?.querySelectorAll("[data-settings-asset]").forEach((row) => {
+    const title = assetMeta(row.dataset.settingsAsset).title;
+    const inputs = row.querySelectorAll("input");
+    const titleElement = row.querySelector("span");
+    if (titleElement) titleElement.textContent = title;
+    if (inputs[0]) inputs[0].setAttribute("aria-label", `${translateInline("بازده مؤثر سالانه‌ی فرضی")} ${title}`);
+    if (inputs[1]) inputs[1].setAttribute("aria-label", `${translateInline("نوسان فرضی")} ${title}`);
+  });
   const feeGrid = $("#settings-transaction-cost-grid");
   if (feeGrid && feeGrid.dataset.rendered !== "true") {
     feeGrid.innerHTML =
@@ -3083,7 +3133,9 @@ function renderSettingsAssumptions() {
       SIMULATION_ASSET_KEYS.map((assetId) => {
         const title = assetMeta(assetId).title;
         return (
-          "<div><span>" +
+          '<div data-settings-asset="' +
+          escapeHTML(assetId) +
+          '"><span>' +
           escapeHTML(title) +
           '</span><input id="settings-fee-buy-' +
           escapeHTML(assetId) +
@@ -3102,6 +3154,15 @@ function renderSettingsAssumptions() {
       }).join("");
     feeGrid.dataset.rendered = "true";
   }
+  feeGrid?.querySelectorAll("[data-settings-asset]").forEach((row) => {
+    const title = assetMeta(row.dataset.settingsAsset).title;
+    const titleElement = row.querySelector("span");
+    const inputs = row.querySelectorAll("input");
+    if (titleElement) titleElement.textContent = title;
+    ["کارمزد خرید", "کارمزد فروش", "فاصله خرید و فروش"].forEach((prefix, index) => {
+      if (inputs[index]) inputs[index].setAttribute("aria-label", `${translateInline(prefix)} ${title}`);
+    });
+  });
   const scalarValues = {
     "settings-inflation-rate": percentInputValue(modelSettings.inflationRate * 100),
     "settings-contribution-growth": percentInputValue(modelSettings.contributionGrowth * 100),
@@ -4880,11 +4941,22 @@ function handleAdvancedTransactionSubmit(event) {
   setPortfolioStatus(text("portfolio.advancedSaved"), "success");
 }
 
-function setTransferStatus(message, type = "neutral") {
+function setTransferStatus(message, type = "neutral", formatter = null) {
+  transferStatusFormatter = formatter;
+  transferStatusType = type;
   [$("#history-transfer-status"), $("#settings-transfer-status")].filter(Boolean).forEach((element) => {
     element.textContent = message;
     element.className = `transfer-status transfer-${type}`;
   });
+}
+
+function setLocalizedTransferStatus(formatter, type = "neutral") {
+  setTransferStatus(formatter(), type, formatter);
+}
+
+function refreshTransferStatusCopy() {
+  if (transferStatusFormatter)
+    setTransferStatus(transferStatusFormatter(), transferStatusType, transferStatusFormatter);
 }
 
 function previewPlanIfVisible() {
@@ -4936,13 +5008,13 @@ function clearAllLocalData() {
   renderMarket(null);
   renderSettingsAssumptions();
   applyModelSettingsToSimulation();
-  setTransferStatus("داده‌های محلی حذف شد.", "success");
+  setLocalizedTransferStatus(() => text("app.localDataCleared"), "success");
 }
 
 function exportHistory() {
   const records = readHistory();
   if (!records.length) {
-    setTransferStatus(text("history.transfer.empty"), "warning");
+    setLocalizedTransferStatus(() => text("history.transfer.empty"), "warning");
     return;
   }
   const payload = JSON.stringify(createHistoryExport(records), null, 2);
@@ -4955,7 +5027,7 @@ function exportHistory() {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-  setTransferStatus(`${text("backup.planExported")} ${formatIRR(records.length)}`, "success");
+  setLocalizedTransferStatus(() => `${text("backup.planExported")} ${formatIRR(records.length)}`, "success");
 }
 
 function exportPersonalBackup() {
@@ -4975,10 +5047,10 @@ function exportPersonalBackup() {
     const requestedAt = new Date().toISOString();
     writeStatusTimestamp(LAST_BACKUP_REQUEST_KEY, requestedAt);
     renderBackupStatus();
-    setTransferStatus(text("backup.exportGenerated"), "success");
+    setLocalizedTransferStatus(() => text("backup.exportGenerated"), "success");
   } catch (error) {
     const key = error?.message === "sync.localDataUnavailable" ? "backup.localUnavailable" : "backup.exportFailed";
-    setTransferStatus(text(key), "warning");
+    setLocalizedTransferStatus(() => text(key), "warning");
   }
 }
 
@@ -4988,7 +5060,7 @@ async function importHistoryFile(event) {
   input.value = "";
   if (!file) return;
   if (file.size > 2 * 1024 * 1024) {
-    setTransferStatus(text("history.transfer.tooLarge"), "warning");
+    setLocalizedTransferStatus(() => text("history.transfer.tooLarge"), "warning");
     return;
   }
   try {
@@ -5015,19 +5087,21 @@ async function importHistoryFile(event) {
     if (!writeJsonBatch(localStorage, writes)) throw new Error("storage-failed");
     renderHistory();
     renderPortfolio();
-    const skipped = parsed.skipped
-      ? ` ${text("history.separator")} ${text("history.transfer.skipped")} ${parsed.skipped}`
-      : "";
-    const portfolioStatus = portfolioRestored
-      ? ` ${text("history.separator")} ${text("portfolio.imported")}`
-      : portfolioSkipped
-        ? ` ${text("history.separator")} ${text("portfolio.importSkipped")}`
+    setLocalizedTransferStatus(() => {
+      const currentSkipped = parsed.skipped
+        ? ` ${text("history.separator")} ${text("history.transfer.skipped")} ${parsed.skipped}`
         : "";
-    setTransferStatus(`${text("history.transfer.imported")} ${merged.length}${skipped}${portfolioStatus}`, "success");
+      const currentPortfolioStatus = portfolioRestored
+        ? ` ${text("history.separator")} ${text("portfolio.imported")}`
+        : portfolioSkipped
+          ? ` ${text("history.separator")} ${text("portfolio.importSkipped")}`
+          : "";
+      return `${text("history.transfer.imported")} ${merged.length}${currentSkipped}${currentPortfolioStatus}`;
+    }, "success");
   } catch (error) {
     const key =
       error && error.message === "storage-failed" ? "history.transfer.storageFailed" : "history.transfer.invalid";
-    setTransferStatus(text(key), "warning");
+    setLocalizedTransferStatus(() => text(key), "warning");
   }
 }
 
@@ -5037,7 +5111,7 @@ async function importPersonalBackupFile(event) {
   input.value = "";
   if (!file) return;
   if (file.size > 2 * 1024 * 1024) {
-    setTransferStatus(text("history.transfer.tooLarge"), "warning");
+    setLocalizedTransferStatus(() => text("history.transfer.tooLarge"), "warning");
     return;
   }
   try {
@@ -5070,10 +5144,10 @@ async function importPersonalBackupFile(event) {
     renderDashboard();
     renderMarket(liveMarket, lastKnownMarket);
     renderBackupStatus();
-    setTransferStatus(text("backup.imported"), "success");
+    setLocalizedTransferStatus(() => text("backup.imported"), "success");
   } catch (error) {
     const key = error?.message === "storage-failed" ? "history.transfer.storageFailed" : "backup.invalid";
-    setTransferStatus(text(key), "warning");
+    setLocalizedTransferStatus(() => text(key), "warning");
   }
 }
 
@@ -5265,7 +5339,7 @@ async function loadMarket(force = false) {
     renderPortfolio();
     renderDashboard();
     void loadFx();
-    setStatus("از داده‌ی تازه‌ی ذخیره‌شده استفاده شد", "success");
+    setStatus(text("status.cached", fallbackCopy.status.cached), "success");
     return;
   }
   try {
@@ -5568,7 +5642,7 @@ function bindEvents() {
     localStorage.removeItem(HISTORY_KEY);
     localStorage.removeItem("investment-plan-history-v3");
     renderHistory();
-    setTransferStatus(text("history.transfer.cleared"), "neutral");
+    setLocalizedTransferStatus(() => text("history.transfer.cleared"), "neutral");
     navigationController.goTo("history");
   };
   $("#clear-history").addEventListener("click", clearSavedHistory);
@@ -5588,10 +5662,7 @@ function bindEvents() {
       renderMarket(liveMarket, null);
       renderDashboard();
     }
-    setStatus(
-      disabled ? "ذخیره بازار خاموش است" : text("status.connected", fallbackCopy.status.connected),
-      disabled ? "warning" : "success",
-    );
+    refreshMarketStatusCopy();
   });
   $("#settings-clear-market-cache").addEventListener("click", () => {
     localStorage.removeItem(MARKET_CACHE_KEY);
@@ -5602,7 +5673,7 @@ function bindEvents() {
     }
     renderMarket(liveMarket, null);
     renderDashboard();
-    setTransferStatus("داده بازار ذخیره‌شده حذف شد.", "success");
+    setLocalizedTransferStatus(() => text("app.marketCacheCleared"), "success");
   });
   $("#settings-export-data").addEventListener("click", exportPersonalBackup);
   $("#settings-import-data").addEventListener("click", () => $("#settings-file").click());
@@ -5684,51 +5755,55 @@ function bindEvents() {
 }
 
 async function init() {
-  try {
-    await loadCopy();
-    syncUiPreferenceControls();
-    migrateStoredCurrencyToToman();
-    modelSettings = loadModelSettings();
-    restoreProviderApiKey();
-    renderSimulationWeightInputs();
-    renderSettingsAssumptions();
-    applyModelSettingsToSimulation();
-    restoreProfile();
-    $("#contribution-output").textContent = formatPercent(Number($("#contribution-rate").value), 0);
-    bindEvents();
-    renderHistory();
-    renderPortfolio();
-    renderDashboard();
-    renderSettingsAssumptions();
-    $("#advanced-date").value = localDateTimeValue();
-    $("#portfolio-market-date").value = localDateTimeValue();
-    $("#manual-quote-date").value = localDateTimeValue();
-    updateMarketEntryAvailability();
-    updateAdvancedTransactionFields();
-    void loadMarket();
-    applyModelSettingsToSimulation();
-    const inflationFetchedAt = modelSettings.inflationFetchedAt ? Date.parse(modelSettings.inflationFetchedAt) : 0;
-    if (
-      !modelSettings.inflationSource ||
-      !Number.isFinite(inflationFetchedAt) ||
-      Date.now() - inflationFetchedAt > 30 * 24 * 60 * 60 * 1000
-    ) {
-      void refreshInflationAssumption();
-    }
-    showStorageWarning();
-  } catch {
-    const error = $("#app-error");
-    if (error) {
-      error.hidden = false;
-      error.textContent = text(
-        "app.hydrationFailed",
-        "Saved data could not be fully loaded. Existing browser data was left in place; review or restore a backup before continuing.",
-      );
-    }
-  } finally {
-    document.documentElement.dataset.hydrating = "false";
-    $("#app-loading")?.setAttribute("hidden", "");
-  }
+  await runHydration(
+    async () => {
+      await loadCopy();
+      syncUiPreferenceControls();
+      migrateStoredCurrencyToToman();
+      modelSettings = loadModelSettings();
+      restoreProviderApiKey();
+      renderSimulationWeightInputs();
+      renderSettingsAssumptions();
+      applyModelSettingsToSimulation();
+      restoreProfile();
+      $("#contribution-output").textContent = formatPercent(Number($("#contribution-rate").value), 0);
+      bindEvents();
+      renderHistory();
+      renderPortfolio();
+      renderDashboard();
+      renderSettingsAssumptions();
+      $("#advanced-date").value = localDateTimeValue();
+      $("#portfolio-market-date").value = localDateTimeValue();
+      $("#manual-quote-date").value = localDateTimeValue();
+      updateMarketEntryAvailability();
+      updateAdvancedTransactionFields();
+      void loadMarket();
+      applyModelSettingsToSimulation();
+      const inflationFetchedAt = modelSettings.inflationFetchedAt ? Date.parse(modelSettings.inflationFetchedAt) : 0;
+      if (
+        !modelSettings.inflationSource ||
+        !Number.isFinite(inflationFetchedAt) ||
+        Date.now() - inflationFetchedAt > 30 * 24 * 60 * 60 * 1000
+      ) {
+        void refreshInflationAssumption();
+      }
+      showStorageWarning();
+    },
+    {
+      documentRef: document,
+      loadingElement: $("#app-loading"),
+      onError: () => {
+        const error = $("#app-error");
+        if (error) {
+          error.hidden = false;
+          error.textContent = text(
+            "app.hydrationFailed",
+            "Startup did not finish. Saved data was left untouched. Reload the page; if the issue continues, review or restore a backup in Settings.",
+          );
+        }
+      },
+    },
+  );
 }
 
 init();

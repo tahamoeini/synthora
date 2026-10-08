@@ -49,7 +49,48 @@ function viewFromLocation(windowRef) {
   return "dashboard";
 }
 
-export function createNavigationController(shell, store, windowRef = globalThis.window) {
+function routeHref(location, viewId) {
+  const search = new URLSearchParams(location?.search || "");
+  search.delete("view");
+  const query = search.toString();
+  const pathname = location?.pathname || "/";
+  return pathname + (query ? "?" + query : "") + "#" + viewId;
+}
+
+function isCanonicalLocation(location, viewId) {
+  if (!location || location.hash !== "#" + viewId) return false;
+  return !new URLSearchParams(location.search || "").has("view");
+}
+
+function stateForRoute(windowRef, viewId, scrollX, scrollY) {
+  const previous =
+    windowRef?.history?.state && typeof windowRef.history.state === "object" ? windowRef.history.state : {};
+  return {
+    ...previous,
+    synthoraView: viewId,
+    scrollX: Number(scrollX) || 0,
+    scrollY: Number(scrollY) || 0,
+  };
+}
+
+function safeScrollTo(windowRef, scrollX, scrollY) {
+  try {
+    windowRef?.scrollTo?.({ left: Number(scrollX) || 0, top: Number(scrollY) || 0, behavior: "instant" });
+  } catch {
+    try {
+      windowRef?.scrollTo?.(Number(scrollX) || 0, Number(scrollY) || 0);
+    } catch {
+      // The section change remains useful when this browser cannot scroll programmatically.
+    }
+  }
+}
+
+export function createNavigationController(
+  shell,
+  store,
+  windowRef = globalThis.window,
+  { onUrlUpdateFailure = () => {} } = {},
+) {
   const { root, sidebar, navigation, pageContainer } = shell;
 
   function apply(state) {
@@ -63,8 +104,9 @@ export function createNavigationController(shell, store, windowRef = globalThis.
       else item.removeAttribute("aria-current");
     });
     pageContainer.views.forEach((view) => {
-      view.classList.toggle("is-active", view.dataset.appView === state.activeView);
-      view.setAttribute("aria-hidden", view.dataset.appView === state.activeView ? "false" : "true");
+      const active = view.dataset.appView === state.activeView;
+      view.classList.toggle("is-active", active);
+      view.setAttribute("aria-hidden", active ? "false" : "true");
     });
     const activeItem = NAVIGATION_ITEMS.find((item) => item.id === state.activeView);
     const activeButton = navigation.items.find((item) => item.dataset.navView === state.activeView);
@@ -77,61 +119,126 @@ export function createNavigationController(shell, store, windowRef = globalThis.
       sidebar.mobileToggle.setAttribute("aria-expanded", state.mobileNavOpen ? "true" : "false");
   }
 
+  function reportUrlUpdateFailure() {
+    try {
+      onUrlUpdateFailure();
+    } catch {
+      // Reporting a browser limitation must not prevent the requested view from opening.
+    }
+  }
+
+  function updateRouteUrl(viewId, { replace = false, scrollX, scrollY } = {}) {
+    const location = windowRef?.location;
+    if (!location) return false;
+    const url = routeHref(location, viewId);
+    const state = stateForRoute(windowRef, viewId, scrollX ?? windowRef.scrollX, scrollY ?? windowRef.scrollY);
+    const method = replace ? "replaceState" : "pushState";
+
+    try {
+      const history = windowRef.history;
+      if (typeof history?.[method] === "function") {
+        history[method](state, "", url);
+        if (isCanonicalLocation(location, viewId)) return true;
+      }
+    } catch {
+      // Try the browser's built-in fragment navigation below.
+    }
+
+    if (replace && typeof location.replace === "function") {
+      try {
+        location.replace(url);
+        return true;
+      } catch {
+        // Fall through to a same-page hash update.
+      }
+    }
+
+    try {
+      location.hash = "#" + viewId;
+      return location.hash === "#" + viewId;
+    } catch {
+      return false;
+    }
+  }
+
   function saveCurrentScroll() {
-    if (!windowRef?.history?.replaceState || !windowRef.location) return;
-    const previous =
-      windowRef.history.state && typeof windowRef.history.state === "object" ? windowRef.history.state : {};
-    windowRef.history.replaceState(
-      {
-        ...previous,
-        synthoraView: store.getState().activeView,
-        scrollX: windowRef.scrollX || 0,
-        scrollY: windowRef.scrollY || 0,
-      },
-      "",
-      windowRef.location.href,
-    );
+    const history = windowRef?.history;
+    const location = windowRef?.location;
+    if (typeof history?.replaceState !== "function" || !location) return;
+    try {
+      history.replaceState(
+        stateForRoute(windowRef, store.getState().activeView, windowRef.scrollX, windowRef.scrollY),
+        "",
+        location.href,
+      );
+    } catch {
+      // Browser history is optional; navigation still changes the visible section.
+    }
   }
 
   function goTo(viewId) {
-    if (!VIEW_IDS.has(viewId)) return;
+    if (!VIEW_IDS.has(viewId)) return false;
     const current = store.getState().activeView;
-    if (viewId !== current && windowRef?.history?.pushState && windowRef.location) {
-      saveCurrentScroll();
-      windowRef.history.pushState({ synthoraView: viewId, scrollX: 0, scrollY: 0 }, "", `#${viewId}`);
-      windowRef.scrollTo?.({ left: 0, top: 0, behavior: "instant" });
+    const changed = viewId !== current;
+    const canonical = isCanonicalLocation(windowRef?.location, viewId);
+    const routeAlreadyMatches = canonical && viewFromLocation(windowRef) === viewId;
+
+    if (changed && !routeAlreadyMatches) saveCurrentScroll();
+    if (!routeAlreadyMatches) {
+      const updated = updateRouteUrl(viewId, {
+        replace: !changed || canonical,
+        scrollX: changed ? 0 : windowRef?.scrollX,
+        scrollY: changed ? 0 : windowRef?.scrollY,
+      });
+      if (!updated) reportUrlUpdateFailure();
     }
     store.setState({ activeView: viewId, mobileNavOpen: false });
+    if (changed) safeScrollTo(windowRef, 0, 0);
+    return true;
   }
 
   function restoreFromHistory(event) {
     const activeView = viewFromLocation(windowRef);
     store.setState({ activeView, mobileNavOpen: false });
-    const state = event?.state;
-    if (Number.isFinite(Number(state?.scrollY))) {
-      const scrollX = Number(state.scrollX) || 0;
-      const scrollY = Number(state.scrollY) || 0;
-      windowRef.requestAnimationFrame?.(() =>
-        windowRef.scrollTo?.({ left: scrollX, top: scrollY, behavior: "instant" }),
-      );
-    }
+    const state = event?.state ?? windowRef?.history?.state;
+    if (Number.isFinite(Number(state?.scrollY)))
+      windowRef.requestAnimationFrame?.(() => safeScrollTo(windowRef, state.scrollX, state.scrollY));
   }
 
-  if (windowRef?.history && "scrollRestoration" in windowRef.history) windowRef.history.scrollRestoration = "manual";
-  if (windowRef?.location && windowRef.history?.replaceState) {
-    const initialView = viewFromLocation(windowRef);
-    if (!windowRef.location.hash && initialView === "dashboard") {
-      const query = windowRef.location.search;
-      if (query && new URLSearchParams(query).has("view"))
-        windowRef.history.replaceState({ synthoraView: initialView, scrollX: 0, scrollY: 0 }, "", `#${initialView}`);
+  try {
+    const history = windowRef?.history;
+    if (history && "scrollRestoration" in history) history.scrollRestoration = "manual";
+  } catch {
+    // Browser-managed restoration remains available when this setting is blocked.
+  }
+
+  const initialView = viewFromLocation(windowRef);
+  store.setState({ activeView: initialView });
+  const location = windowRef?.location;
+  if (location) {
+    const hasLegacyQuery = new URLSearchParams(location.search || "").has("view");
+    const hasNoncanonicalHash = Boolean(location.hash) && location.hash !== "#" + initialView;
+    if (hasLegacyQuery || hasNoncanonicalHash) {
+      const updated = updateRouteUrl(initialView, {
+        replace: true,
+        scrollX: windowRef.scrollX,
+        scrollY: windowRef.scrollY,
+      });
+      if (!updated) reportUrlUpdateFailure();
+    } else if (
+      typeof windowRef.history?.replaceState === "function" &&
+      windowRef.history.state?.synthoraView !== initialView
+    ) {
+      try {
+        windowRef.history.replaceState(
+          stateForRoute(windowRef, initialView, windowRef.scrollX, windowRef.scrollY),
+          "",
+          location.href,
+        );
+      } catch {
+        // The current route is already canonical, so no fallback navigation is needed.
+      }
     }
-    store.setState({ activeView: initialView });
-    if (!windowRef.history.state?.synthoraView)
-      windowRef.history.replaceState(
-        { ...(windowRef.history.state || {}), synthoraView: initialView, scrollX: 0, scrollY: windowRef.scrollY || 0 },
-        "",
-        windowRef.location.href,
-      );
   }
 
   navigation.items.forEach((item) => item.addEventListener("click", () => goTo(item.dataset.navView)));

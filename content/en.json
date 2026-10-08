@@ -1,10 +1,20 @@
 {
   "currencyUnit": "Toman",
   "to": "to",
+  "app": {
+    "hydrationFailed": "Startup did not finish. Saved data was left untouched. Reload the page; if the issue continues, review or restore a backup in Settings.",
+    "storageWarning": "Some local data could not be read or saved. Synthora continued with available data and did not delete any records. If information is missing, review and restore a backup in Settings.",
+    "localDataCleared": "Local data was removed from this browser.",
+    "marketCacheCleared": "Saved market data was removed."
+  },
+  "navigation": {
+    "urlUnavailable": "This section opened, but the browser could not update the address or navigation history. Use the in-app menu to continue."
+  },
   "status": {
     "loading": "Loading market data",
     "connected": "Market data updated",
     "cached": "Showing cached market data",
+    "cacheDisabled": "Market price storage is off",
     "unavailable": "Live market data is unavailable",
     "timeout": "Market data timed out; try again"
   },
@@ -1228,6 +1238,10 @@
     "ثبت دارایی‌های موجود": "Add existing holdings",
     "دیدن بازار": "Explore markets",
     "بررسی داده‌های ذخیره‌شده در همین مرورگر…": "Checking saved data in this browser…",
+    "اول شرایطت را وارد کن.": "Start by entering your circumstances.",
+    "پیشنهاد این ماه را با سابقه و سناریوهای روشن ببین؛ Synthora قیمت بازار را پیش‌بینی نمی‌کند.": "Review this month's proposal with recorded history and clear scenarios; Synthora does not forecast market prices.",
+    "این درصد فقط نقطه‌ی شروع است؛ توصیه شخصی یا مبلغ امن نیست.": "This percentage is only a starting point, not personal advice or a safe amount.",
+    "آن را بر اساس شرایط خودت ویرایش کن.": "Adjust it to fit your circumstances.",
     "فرض اولیه قابل ویرایش": "Editable starting assumption",
     "این درصد فقط ورودی شروع است، توصیه شخصی یا مبلغ امن نیست؛ آن را بر اساس شرایط خودت ویرایش کن.": "This percentage is only a starting input, not personalized advice or a safe amount; edit it for your circumstances.",
     "قیمت‌های بازار": "Market prices",

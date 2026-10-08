@@ -109,7 +109,7 @@ test("visible page copy and accessibility text translate without Persian remnant
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gu, "")
     .replace(/<!--[\s\S]*?-->/gu, "");
   const visible = [];
-  for (const match of html.matchAll(/>([^<>]*)<|\b(?:placeholder|title|aria-label|alt)="([^"]*)"/gu)) {
+  for (const match of html.matchAll(/>([^<>]*)<|\b(?:placeholder|title|aria-label|alt|label)="([^"]*)"/gu)) {
     const value = match[1] || match[2];
     if (/[\u0600-\u06ff]/u.test(value)) visible.push(value);
   }
