@@ -2376,7 +2376,7 @@ html[dir="ltr"] .app-navigation button.is-active {
   margin-top: 14px;
 }
 .app-view[data-app-view="plan"] .page-heading {
-  margin-bottom: 8px;
+  margin-bottom: 0;
 }
 .app-view[data-app-view="plan"] .plan-start-fields .field.full,
 .app-view[data-app-view="plan"] .plan-start-fields .rate-field {

@@ -45,6 +45,17 @@ test("each static locale catalog contains the complete Persian base key shape", 
   }
 });
 
+test("consequential native confirmations have explicit translations in every locale", () => {
+  for (const locale of ["fa", "en", "ru", "zh"]) {
+    const catalog = readCatalog(locale);
+    assert.ok(catalog.portfolio.backdateConfirm, locale + " is missing portfolio.backdateConfirm");
+    assert.ok(catalog.settings.resetAllConfirm, locale + " is missing settings.resetAllConfirm");
+  }
+  const app = readFileSync(new URL("../app.js", import.meta.url), "utf8");
+  assert.match(app, /window\.confirm\(text\("portfolio\.backdateConfirm"\)\)/u);
+  assert.match(app, /window\.confirm\(text\("settings\.resetAllConfirm"\)\)/u);
+});
+
 test("market source coverage labels resolve their count placeholders in every locale", () => {
   for (const locale of ["fa", "en", "ru", "zh"]) {
     const template = readCatalog(locale).market.sourceCoverage;
