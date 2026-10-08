@@ -4660,11 +4660,7 @@ function handleMarketAssetSubmit(event) {
     Number.isFinite(Number(marketPrice)) &&
     Number(marketPrice) > 0;
   const isBackdated = acquisitionDate.slice(0, 10) < localDateTimeValue().slice(0, 10);
-  if (
-    isBackdated &&
-    !window.confirm("این تراکنش با زمان گذشته ثبت می‌شود و روی محاسبات تاریخی پرتفوی اثر دارد. ادامه می‌دهی؟")
-  )
-    return;
+  if (isBackdated && !window.confirm(text("portfolio.backdateConfirm"))) return;
   const type = activePortfolioVersion(portfolio).transactions.length ? "BUY" : "OPENING";
   const transaction = createTransaction(
     {
@@ -5679,12 +5675,7 @@ function bindEvents() {
   $("#settings-import-data").addEventListener("click", () => $("#settings-file").click());
   $("#settings-file").addEventListener("change", importPersonalBackupFile);
   $("#settings-reset-all").addEventListener("click", () => {
-    if (
-      window.confirm(
-        "همه برنامه‌ها، دفتر پرتفوی، پروفایل و داده بازار از این مرورگر حذف شود؟ این کار قابل بازگشت نیست.",
-      )
-    )
-      clearAllLocalData();
+    if (window.confirm(text("settings.resetAllConfirm"))) clearAllLocalData();
   });
   $("#asset-drawer-close")?.addEventListener("click", () => closeAssetDrawer());
   $("#asset-drawer-content")?.addEventListener("click", (event) => {

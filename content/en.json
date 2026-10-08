@@ -1,6 +1,9 @@
 {
   "currencyUnit": "Toman",
   "to": "to",
+  "settings": {
+    "resetAllConfirm": "Delete all plans, the portfolio ledger, profile, and market data from this browser? This cannot be undone."
+  },
   "app": {
     "hydrationFailed": "Startup did not finish. Saved data was left untouched. Reload the page; if the issue continues, review or restore a backup in Settings.",
     "storageWarning": "Some local data could not be read or saved. Synthora continued with available data and did not delete any records. If information is missing, review and restore a backup in Settings.",
@@ -260,6 +263,7 @@
     "estimatedPrices": "Some prices are estimates; read the allocations and proposal with that uncertainty in mind."
   },
   "portfolio": {
+    "backdateConfirm": "This transaction will be backdated and will affect historical portfolio calculations. Continue?",
     "empty": "No holdings to show yet.",
     "complete": "All holdings have usable prices.",
     "missingPrices": "One or more holdings have no valid price.",
