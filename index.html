@@ -54,10 +54,21 @@
   <body>
     <div id="app-loading" class="app-loading" role="status" aria-live="polite">
       <span data-loading-locale="fa">بررسی داده‌های ذخیره‌شده در همین مرورگر…</span>
-      <span data-loading-locale="en">Checking saved data in this browser…</span>
-      <span data-loading-locale="ru">Проверяем данные, сохранённые в этом браузере…</span>
-      <span data-loading-locale="zh">正在检查此浏览器中保存的数据…</span>
+      <span data-loading-locale="en" hidden>Checking saved data in this browser…</span>
+      <span data-loading-locale="ru" hidden>Проверяем данные, сохранённые в этом браузере…</span>
+      <span data-loading-locale="zh" hidden>正在检查此浏览器中保存的数据…</span>
     </div>
+    <script>
+      (() => {
+        const locale = document.documentElement.dataset.locale || "fa";
+        document.querySelectorAll("[data-loading-locale]").forEach((message) => {
+          const active = message.dataset.loadingLocale === locale;
+          message.hidden = !active;
+          if (active) message.removeAttribute("aria-hidden");
+          else message.setAttribute("aria-hidden", "true");
+        });
+      })();
+    </script>
     <div id="app-shell" class="app-shell">
       <aside id="app-sidebar" class="app-sidebar" aria-label="ناوبری برنامه">
         <div class="sidebar-header">
@@ -79,33 +90,37 @@
         </div>
         <nav id="app-navigation" class="app-navigation" aria-label="بخش‌های برنامه">
           <div class="nav-group">
-            <button type="button" data-nav-view="dashboard">
+            <button type="button" data-nav-view="dashboard" aria-label="داشبورد">
               <span class="nav-icon">⌂</span
               ><span class="nav-copy"><strong>داشبورد</strong><small>خلاصه وضعیت و اقدام بعدی</small></span>
             </button>
           </div>
           <div class="nav-group">
-            <button type="button" data-nav-view="portfolio">
+            <button type="button" data-nav-view="portfolio" aria-label="پرتفوی من">
               <span class="nav-icon">◫</span
               ><span class="nav-copy"><strong>پرتفوی من</strong><small>دارایی‌ها و دفتر تراکنش</small></span>
             </button>
           </div>
           <div class="nav-group">
-            <button type="button" data-nav-view="plan">
+            <button type="button" data-nav-view="plan" aria-label="برنامه سرمایه‌گذاری">
               <span class="nav-icon">↗</span
               ><span class="nav-copy"><strong>برنامه سرمایه‌گذاری</strong><small>ساخت برنامه ماهانه</small></span>
             </button>
-            <button class="nav-subitem" type="button" data-nav-view="history">نسخه‌های ذخیره‌شده</button>
+            <button class="nav-subitem" type="button" data-nav-view="history" aria-label="نسخه‌های ذخیره‌شده">
+              نسخه‌های ذخیره‌شده
+            </button>
           </div>
           <div class="nav-group">
-            <button type="button" data-nav-view="simulation">
+            <button type="button" data-nav-view="simulation" aria-label="تحلیل">
               <span class="nav-icon">◌</span
               ><span class="nav-copy"><strong>تحلیل</strong><small>سناریو و بک‌تست</small></span>
             </button>
-            <button class="nav-subitem" type="button" data-nav-view="assets">بازار و مقایسه</button>
+            <button class="nav-subitem" type="button" data-nav-view="assets" aria-label="بازار و مقایسه">
+              بازار و مقایسه
+            </button>
           </div>
           <div class="nav-group">
-            <button type="button" data-nav-view="settings">
+            <button type="button" data-nav-view="settings" aria-label="تنظیمات">
               <span class="nav-icon">⚙</span
               ><span class="nav-copy"><strong>تنظیمات</strong><small>داده محلی و ظاهر برنامه</small></span>
             </button>
@@ -333,26 +348,26 @@
               </div>
               <span class="page-badge">بدون پیش‌بینی بازار</span>
             </div>
-            <section class="hero">
+            <section class="hero plan-intro">
               <div>
                 <span class="eyebrow">تصمیم‌یار ریاضی، نه پیشگوی بازار</span>
-                <h1>برای آینده‌ات برنامه بچین، نه حدس.</h1>
-                <p>
-                  حقوق، هدف و شرایطت را وارد کن. Synthora با داده‌های چندمنبعی، سابقه ثبت‌شده و چند سناریوی شفاف می‌گوید
-                  این ماه چقدر کنار بگذاری و پول جدید را چطور پخش کنی.
-                </p>
+                <h1>اول شرایطت را وارد کن.</h1>
+                <p>پیشنهاد این ماه را با سابقه و سناریوهای روشن ببین؛ Synthora قیمت بازار را پیش‌بینی نمی‌کند.</p>
                 <div class="hero-points">
                   <span>بدون وعده سود</span><span>بدون فروش اجباری</span><span>تاریخچه فقط روی دستگاه تو</span>
                 </div>
               </div>
-              <div class="hero-card">
-                <span>فرض اولیه قابل ویرایش</span><strong>۲۰٪</strong
-                ><small
-                  >این درصد فقط ورودی شروع است، توصیه شخصی یا مبلغ امن نیست؛ آن را بر اساس شرایط خودت ویرایش کن.</small
-                >
-                <div><span>منطق</span><b>داده + سابقه + محدودیت ریسک</b></div>
-                <div><span>خروجی</span><b>مبلغ، وزن، دامنه و دلیل</b></div>
-              </div>
+              <details class="hero-card plan-assumption-card">
+                <summary>
+                  <span>فرض اولیه قابل ویرایش</span><strong>۲۰٪</strong>
+                  <small>این درصد فقط نقطه‌ی شروع است؛ توصیه شخصی یا مبلغ امن نیست.</small>
+                </summary>
+                <div class="plan-assumption-details">
+                  <small>آن را بر اساس شرایط خودت ویرایش کن.</small>
+                  <div><span>منطق</span><b>داده + سابقه + محدودیت ریسک</b></div>
+                  <div><span>خروجی</span><b>مبلغ، وزن، دامنه و دلیل</b></div>
+                </div>
+              </details>
             </section>
 
             <section id="setup" class="plan-workspace">
@@ -364,29 +379,31 @@
                   </div>
                   <span class="local-chip">محلی و قابل پاک‌کردن</span>
                 </div>
-                <div class="field full">
-                  <label for="salary">حقوق خالص ماهانه</label>
-                  <div class="money-input">
-                    <input
-                      id="salary"
-                      type="text"
-                      inputmode="decimal"
-                      data-number-input
-                      placeholder="مثلا ۸۰٬۰۰۰٬۰۰۰"
-                      required
-                    /><span>تومان</span>
+                <div class="field-grid plan-start-fields">
+                  <div class="field full">
+                    <label for="salary">حقوق خالص ماهانه</label>
+                    <div class="money-input">
+                      <input
+                        id="salary"
+                        type="text"
+                        inputmode="decimal"
+                        data-number-input
+                        placeholder="مثلا ۸۰٬۰۰۰٬۰۰۰"
+                        required
+                      /><span>تومان</span>
+                    </div>
+                    <small>عددها با جداکننده نمایش داده می‌شوند؛ حقوق و سابقه به سرور ارسال نمی‌شود.</small>
                   </div>
-                  <small>عددها با جداکننده نمایش داده می‌شوند؛ حقوق و سابقه به سرور ارسال نمی‌شود.</small>
-                </div>
-                <div class="field rate-field">
-                  <label for="contribution-rate">درصد سرمایه‌گذاری ماهانه</label>
-                  <div class="range-line">
-                    <input id="contribution-rate" type="range" min="5" max="40" step="1" value="20" /><output
-                      id="contribution-output"
-                      >۲۰٪</output
-                    >
+                  <div class="field rate-field">
+                    <label for="contribution-rate">درصد سرمایه‌گذاری ماهانه</label>
+                    <div class="range-line">
+                      <input id="contribution-rate" type="range" min="5" max="40" step="1" value="20" /><output
+                        id="contribution-output"
+                        >۲۰٪</output
+                      >
+                    </div>
+                    <small>با صندوق اضطراری ناقص، بهتر است نرخ را بی‌دلیل بالا نبری.</small>
                   </div>
-                  <small>با صندوق اضطراری ناقص، بهتر است نرخ را بی‌دلیل بالا نبری.</small>
                 </div>
                 <div class="field-grid primary-profile-fields">
                   <div class="field">
@@ -417,6 +434,7 @@
                     </select>
                   </div>
                 </div>
+                <button class="primary-button" type="submit"><span>پیش‌نمایش پیشنهاد</span><b>←</b></button>
                 <fieldset class="recommendation-assets">
                   <legend>دارایی‌های اضافه در پیشنهاد</legend>
                   <p>
@@ -491,7 +509,6 @@
                     </div>
                   </div>
                 </details>
-                <button class="primary-button" type="submit"><span>پیش‌نمایش پیشنهاد</span><b>←</b></button>
               </form>
 
               <section id="plan-output" class="panel output-panel is-hidden">

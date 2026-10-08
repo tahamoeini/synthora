@@ -84,6 +84,8 @@ Without `USER_DATA_DB`, sync reports that storage is unavailable, while local us
 
 ## Local Pages preview
 
+The repository _headers file sets Cache-Control: public, max-age=0, must-revalidate for the mutable app entry point, JavaScript modules, and stylesheet. This lets the browser reuse unchanged files after a conditional request while avoiding a four-hour mix of app and CSS revisions. These rules apply to static responses; verify response headers in the deployed environment because dashboard cache rules can also affect browser caching. See [Cloudflare Pages custom headers](https://developers.cloudflare.com/pages/configuration/headers/).
+
 This repository does not commit account-specific Wrangler configuration. For a no-D1 preview, start Wrangler without a database binding; public market/reference GET routes use the same-origin fallback. For durable quotas and platform keys, use the configured preview steps below:
 
 1. Create a local `.dev.vars` file containing an `API_SESSION_SIGNING_SECRET` with at least 32 random characters. Use a local-only value; never copy the production secret. Keep `.dev.vars` out of source control.

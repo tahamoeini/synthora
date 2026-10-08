@@ -129,6 +129,8 @@ The default assumptions are intentionally visible in `src/engine.js` and are not
 
 ## Local development
 
+Cloudflare Pages revalidates the mutable app shell, JavaScript modules, and stylesheet before reusing them. Keep these paths on the max-age=0, must-revalidate policy in _headers so a new HTML page cannot be paired with cached code or styles from an earlier release.
+
 Serve the app over HTTP; opening `index.html` with `file://` does not support its module and copy-catalog requests. Planning, assumption-based simulations, manual quotes, and browser-stored records work without a provider key or database. Public market and reference sources work through same-origin Pages Functions in bounded read-only mode without D1; D1 adds durable rate limits, shared provider caching, and access to platform-paid provider keys. A user's own CoinGecko or CoinMarketCap key can add authenticated crypto quotes without D1. Sync requires API security configuration and a separate `USER_DATA_DB`. The [Cloudflare setup guide](docs/cloudflare-market-api.md#local-pages-preview) describes these options.
 
 ```bash

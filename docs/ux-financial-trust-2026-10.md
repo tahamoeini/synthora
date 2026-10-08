@@ -79,4 +79,62 @@ The screenshots below are local QA captures. Portfolio examples use manually ent
 | Automated checks                  | Passed              | `npm test` passed all 192 tests; `npm run lint`, `npm run format:check`, `npm run check`, and `git diff --check` passed. The lockfile toolchain was restored with `npm ci`; no package manifest changes were made.                                                                                                                                                                                                                                                                                                           |
 | Deferred product decisions        | Still deferred      | Partial plan execution, portfolio-health timelines, explainable recommendations, and a consolidated data-health center were not changed.                                                                                                                                                                                                                                                                                                                                                                                     |
 
-The merge record above remains a snapshot of the original implementation run. Current check results are recorded in the follow-up pull request description.
+The merge record above remains a snapshot of the original implementation run. The dated follow-up below supersedes its production-smoke and current-check status for this QA pass.
+
+## Production navigation and hydration QA — 2026-10-08
+
+### Production reproduction and diagnosis
+
+The live site was opened in an isolated browser session at `https://synthora.negar.team/#portfolio`. It displayed Dashboard at the portfolio hash; the legacy `?view=portfolio` route also opened Dashboard. Sidebar clicks changed visible content without changing the URL, Back left the app, the first-use holdings action did not reach the form, and all four loading messages remained visible after Dashboard appeared. The browser console was empty. No existing user browser storage was cleared, read, or changed.
+
+The route parser accepted `#portfolio` in isolation, but the previous controller restored the parsed route only inside a `history.replaceState` capability check. Navigation only wrote the URL when `pushState` existed and the requested view differed from store state. It had no same-page hash fallback or user-facing warning if URL updates failed. Existing route tests exercised a mocked History API and did not run the served app through a real browser's startup, cache, and Back/Forward behavior. The first-use action used that same controller and scrolled to the asset selector without focusing it.
+
+Fresh uncached requests for the production app and navigation modules matched the deployed source commit `ad0bce872c525f0b5681f3b3db8759b6044cbdec`, but the CSS active in the browser did not match the fresh stylesheet. The active stylesheet checksum was `18398B1415F3F6726E9B6D5EE62F28C2FDE675322835717D5589BA739254FDF4`; its CSSOM lacked the loading-locale selectors present in the fresh stylesheet. That mismatch explains the four visible language strings and is direct evidence of a stale mixed browser asset set. The cached JavaScript bytes were not captured, so asset skew is a likely contributor to the observed production route behavior, not a proven explanation for every navigation symptom.
+
+Fresh production asset checksums recorded during the reproduction:
+
+| Asset                                        | SHA-256                                                            |
+| -------------------------------------------- | ------------------------------------------------------------------ |
+| `/app.js`                                    | `adb2baaaacc25f0d365d3b69dae6b29eea5fdf7d9af2b686cf1405d02e221eb7` |
+| `/src/ui/navigation.js`                      | `6401a0997573eaa681f265a6167ccf6ddc903f44c02b043f30af29fb96cfcb85` |
+| `/styles.css`                                | `6630582c44f533ced1385888e234fcf7eb6dd3405518803f3ed06658c1b9335c` |
+| `/index.html` (Cloudflare-injected response) | `397a477909cf1c04c90bcf10780787f0b0280d58a6b21933e19462bb2b16e6d1` |
+
+The post-fix local Pages preview served this working tree, based on `ad0bce872c525f0b5681f3b3db8759b6044cbdec` plus uncommitted changes. Its static source checksums were:
+
+| Local source file      | SHA-256                                                            |
+| ---------------------- | ------------------------------------------------------------------ |
+| `app.js`               | `8abad26aa1c1d1fb17c93e7a0e156ceca04ed71b4abfea5405b3efd695249d49` |
+| `src/ui/navigation.js` | `e8a195530d16836bab7f4e261ff5b017ecb325328c5ab718161dd273391a5341` |
+| `styles.css`           | `e56ef9ae9382971f68644ad09e6aa707f8d326c74a7ba4d589ed6179494a2b2b` |
+| `index.html`           | `2294c152c4ffd212aab503cf40028869394bd0fbd838837a411db684fbf24a72` |
+
+### Changes in this checkout
+
+- Reworked route startup and navigation as one controller path. It restores each supported section from the hash, accepts legacy query names, replaces legacy URLs with a canonical hash, falls back to same-page hash navigation when History API calls fail, keeps content changes working if all URL methods fail, and reports that limitation in the active locale. Back and Forward restore the matching view and saved scroll position.
+- Added `_headers` revalidation rules for mutable `/app.js`, `/src/*`, and `/styles.css` assets so a browser checks for current bytes before reuse.
+- Made the loading message respect `hidden` and `data-hydrating`, selected one locale during the pre-hydration boot, and always end hydration on success or failure. Storage-read and unsupported/corrupt-record errors preserve existing values and show a localized recovery message.
+- Connected the holdings CTA to the Portfolio route, opened the initial-entry disclosure, and focused its asset field. Added Persian accessible names to collapsed navigation controls; the existing visible-copy translation updates their names with locale changes.
+- Shortened the Plan introduction and tightened the assumptions block so the first inputs and preview action appear in the initial laptop viewport while retaining the existing layout and styles.
+- Added `.wrangler/**` to ESLint's generated-file ignores after the local Pages preview caused `npm run lint` to inspect generated bundles as application source.
+
+### Local Pages browser evidence
+
+The current checkout was served by a local Wrangler Pages preview at `http://127.0.0.1:8789` using the installed Wrangler maximum compatibility date, `2026-07-08`. Browser storage used only synthetic records on that loopback origin. It did not send profile, plan, or ledger values to market/reference APIs, and no sync recovery key or sync request was used.
+
+- Real browser startup passed for `#dashboard`, `#portfolio`, `#plan`, `#simulation`, `#history`, `#assets`, and `#settings`. `#portfolio` opened Portfolio immediately after hydration. `?view=portfolio`, `?view=holdings`, and `?view=my-portfolio` canonicalized to `/#portfolio`; `?view=home` canonicalized to Dashboard. Unknown hashes fell back to Dashboard.
+- Clicking sidebar and in-app links updated both selected content and URL. Browser Back and Forward restored the matching section and scroll state; refresh retained the selected section and synthetic profile. This was exercised in the browser, in addition to the unit tests.
+- From the plan-only first-use state, the Dashboard holdings CTA opened Portfolio, expanded the initial holding form, and focused `#portfolio-market-asset`. Back returned to Dashboard.
+- A synthetic holdings journey recorded an opening amount, buy, sale, and quantity adjustment. Before a valid quote, total valuation remained unavailable. A manually entered `5,000,000 Toman/g` quote with an observation time produced an explicitly estimated `13,000,000 Toman` current value for `2.6 g`; because part of the cost basis was unknown after correction, estimated profit/loss remained unavailable. The ledger audit showed each event and identified the quantity adjustment as history-changing.
+- The Plan preview showed assumptions and monthly contribution before save. Explicit save created a second `not-linked` plan version without a ledger event. At `1280 × 720`, the shortened introduction left the meaningful inputs and preview control in the first viewport. Advanced controls were opened in the browser.
+- Saved plan history showed two versions. Market comparison showed observed dates, source attribution, Toman units, and unavailable states for unsupported instruments. A five-year backtest requiring 60 continuous months failed with longest overlap `0`; reducing the test to gold-only and one year ran on 158 observed monthly points. No missing or stale quote was used to fill the gap.
+- Locale changes among Persian, English, Russian, and Chinese retained the current route. Loading markup now exposes one locale only; the active settings/status text, market-timeout message, and transfer status changed to the selected language. In the collapsed Persian sidebar, the accessibility tree exposed localized names for all seven navigation actions.
+- A holding detail dialog kept Tab and Shift+Tab within the dialog, Escape closed it, and focus returned to the selected holding. Settings showed the local record counts and the encrypted sync flow remained opt-in and unused. Changing display currency to CNY did not change ledger units; without an available conversion rate, the page explicitly fell back to Toman.
+
+Visual review used the in-app browser at `1280 × 720`; the Plan hierarchy was adjusted and rechecked there. The browser exposed its accessibility tree, but this run did not include a screen reader or a physical mobile device. The file picker/import restore path was not driven in the browser because the exposed browser controls could not select a local file; restore remains covered by automated tests. The export action's status says file generation does not confirm that a browser saved the download, and no local downloaded file was available to inspect. Mobile viewport emulation, reduced-motion behavior, real-device keyboard occlusion, physical rotation, and spoken chart/dialog behavior were not verified in this run. The earlier contrast measurements in this document are from their original audit session, not a new measurement here.
+
+### Release checks and remaining production work
+
+- `npm run lint`, `npm run format:check`, `npm run check`, `npm test`, and `git diff --check` passed. The full test suite completed with 204 passing tests. The initial sandbox run could not spawn Node workers (`spawn EPERM`); the complete suite was then run in an environment where worker spawning was permitted. ESLint now excludes Wrangler's ignored generated cache.
+- The local Pages preview and browser journeys passed for the current working tree. The deployed site has not been redeployed with these changes, so post-deployment production browser checks for deep links, CTA, navigation, Back/Forward, refresh, and localized hydration remain pending. The production reproduction above records the pre-fix result; source hashes alone are not evidence of a production fix.
+- This QA run did not create or modify a deployment, run CI/CD, or change package manifests. The current source `HEAD` during QA was `ad0bce872c525f0b5681f3b3db8759b6044cbdec`; fixes and QA documentation are uncommitted working-tree changes.

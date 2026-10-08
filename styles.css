@@ -1784,6 +1784,9 @@ html[data-theme="dark"] .secondary-button:hover {
 .app-loading {
   display: none;
 }
+.app-loading[hidden] {
+  display: none !important;
+}
 html[data-hydrating="true"] #app-shell {
   visibility: hidden;
 }
@@ -1801,10 +1804,7 @@ html[data-hydrating="true"] .app-loading {
 .app-loading [data-loading-locale] {
   display: none;
 }
-html[lang="fa"] .app-loading [data-loading-locale="fa"],
-html[lang="en"] .app-loading [data-loading-locale="en"],
-html[lang="ru"] .app-loading [data-loading-locale="ru"],
-html[lang="zh-CN"] .app-loading [data-loading-locale="zh"] {
+html[data-hydrating="true"] .app-loading [data-loading-locale]:not([hidden]) {
   display: block;
 }
 .app-shell {
@@ -2295,6 +2295,112 @@ html[dir="ltr"] .app-navigation button.is-active {
 }
 .app-view[data-app-view="plan"] .hero {
   padding-top: 8px;
+}
+.app-view[data-app-view="plan"] .plan-intro {
+  grid-template-columns: minmax(0, 1.35fr) minmax(235px, 0.65fr);
+  align-items: start;
+  gap: 20px;
+  padding: 8px 0 2px;
+}
+.app-view[data-app-view="plan"] .plan-intro h1 {
+  margin: 4px 0;
+  font-size: clamp(1.6rem, 2.4vw, 2.1rem);
+}
+.app-view[data-app-view="plan"] .plan-intro p {
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+.app-view[data-app-view="plan"] .plan-intro .hero-points {
+  gap: 8px 16px;
+  margin-top: 6px;
+  font-size: 0.7rem;
+}
+.app-view[data-app-view="plan"] .plan-intro .hero-card {
+  padding: 11px;
+  border-radius: 16px;
+}
+.app-view[data-app-view="plan"] .plan-assumption-card > summary {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 10px;
+  padding-inline-end: 18px;
+  cursor: pointer;
+  color: #b9e2d9;
+}
+.app-view[data-app-view="plan"] .plan-assumption-card > summary::-webkit-details-marker {
+  display: none;
+}
+.app-view[data-app-view="plan"] .plan-assumption-card > summary > span {
+  color: #b9e2d9;
+  font-size: max(12px, 0.72rem);
+}
+.app-view[data-app-view="plan"] .plan-assumption-card > summary > strong {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  margin: 0;
+  font-size: 1.65rem;
+}
+.app-view[data-app-view="plan"] .plan-assumption-card > summary > small {
+  grid-column: 1;
+  color: #cae6e0;
+  font-size: 0.72rem;
+}
+.app-view[data-app-view="plan"] .plan-assumption-card[open] > summary {
+  padding-bottom: 10px;
+}
+.app-view[data-app-view="plan"] .plan-assumption-details > small {
+  display: block;
+  color: #cae6e0;
+  font-size: 0.72rem;
+}
+.app-view[data-app-view="plan"] .plan-assumption-details > div {
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+  color: #afd2cc;
+  display: flex;
+  justify-content: space-between;
+  font-size: max(12px, 0.7rem);
+}
+.app-view[data-app-view="plan"] .plan-assumption-details b {
+  color: white;
+  font-weight: 600;
+  text-align: end;
+}
+.app-view[data-app-view="plan"] .plan-start-fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  margin-top: 14px;
+}
+.app-view[data-app-view="plan"] .page-heading {
+  margin-bottom: 8px;
+}
+.app-view[data-app-view="plan"] .plan-start-fields .field.full,
+.app-view[data-app-view="plan"] .plan-start-fields .rate-field {
+  margin-top: 0;
+}
+.app-view[data-app-view="plan"] .primary-profile-fields {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 14px;
+}
+@media (max-width: 900px) {
+  .app-view[data-app-view="plan"] .plan-intro {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 8px 0 2px;
+  }
+  .app-view[data-app-view="plan"] .plan-intro .hero-card {
+    max-width: none;
+  }
+}
+@media (max-width: 680px) {
+  .app-view[data-app-view="plan"] .plan-start-fields,
+  .app-view[data-app-view="plan"] .primary-profile-fields {
+    grid-template-columns: 1fr;
+  }
 }
 .footer {
   width: min(1160px, 100%);

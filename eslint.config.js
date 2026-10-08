@@ -3,7 +3,7 @@ import globals from "globals";
 
 export default [
   {
-    ignores: ["node_modules/**", "coverage/**", "assets/**"],
+    ignores: ["node_modules/**", "coverage/**", "assets/**", ".wrangler/**"],
   },
   js.configs.recommended,
   {
