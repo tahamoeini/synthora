@@ -1384,7 +1384,6 @@ export function backtestHistorical(options = {}) {
   if (!periods.length)
     return {
       available: false,
-      reason: "insufficient-observed-history",
       observations: historical.rows.length,
       requiredMonths: horizon,
       coverage: historical.coverage,

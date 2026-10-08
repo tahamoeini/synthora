@@ -959,11 +959,15 @@ function renderBackupStatus() {
   const planCount = readHistory().length;
   const transactionCount = activePortfolioVersion(readPortfolio()).transactions.length;
   const hasPersonalData =
-    Boolean(profile && typeof profile === "object" && Object.keys(profile).length) || planCount > 0 || transactionCount > 0;
+    Boolean(profile && typeof profile === "object" && Object.keys(profile).length) ||
+    planCount > 0 ||
+    transactionCount > 0;
   const counts = [
     `${formatIRR(planCount)} ${text("backup.planCount")}`,
     `${formatIRR(transactionCount)} ${text("backup.transactionCount")}`,
-    profile && typeof profile === "object" && Object.keys(profile).length ? text("backup.profilePresent") : text("backup.profileAbsent"),
+    profile && typeof profile === "object" && Object.keys(profile).length
+      ? text("backup.profilePresent")
+      : text("backup.profileAbsent"),
   ].join(` ${text("history.separator")} `);
   const lastExport = readStatusTimestamp(LAST_BACKUP_REQUEST_KEY);
   const lastSync = readStatusTimestamp(LAST_MANUAL_SYNC_KEY);
@@ -1694,11 +1698,7 @@ function marketSourceValuesMarkup(item, assetId = null) {
 }
 
 function marketConsensusNote(item) {
-  if (
-    !item?.consensusDisagreement &&
-    !(Number(item?.unknownObservationCount) > 0) &&
-    !(Number(item?.spreadPct) > 0)
-  )
+  if (!item?.consensusDisagreement && !(Number(item?.unknownObservationCount) > 0) && !(Number(item?.spreadPct) > 0))
     return "";
   const sourceCount = Number(item.sourceCount) || 0;
   const spread = Number(item.spreadPct);
@@ -2403,7 +2403,8 @@ function renderContributionPlan(plan, assetIds = CORE_PLAN_ASSET_KEYS) {
       : plan.dataStatus === "estimated"
         ? text("allocation.estimatedPrices")
         : "";
-  contributionPlanEl.innerHTML = rows + note + missingNote + (qualityNote ? `<p class="data-note">${escapeHTML(qualityNote)}</p>` : "");
+  contributionPlanEl.innerHTML =
+    rows + note + missingNote + (qualityNote ? `<p class="data-note">${escapeHTML(qualityNote)}</p>` : "");
 }
 
 function renderLineChart(container, points, valueKey = "nominal", label = "") {
@@ -2524,10 +2525,8 @@ function renderPortfolioHoldings(portfolio, result, plan, asOf) {
         allocation: result.missingPrices.length ? null : Number(result.allocation[assetId]) || 0,
         basis,
         basisStatus,
-        profitLoss:
-          item.value === null || basis === null || basisStatus !== "confirmed" ? null : item.value - basis,
-        estimatedProfitLoss:
-          item.value === null || basis === null || !estimateOnly ? null : item.value - basis,
+        profitLoss: item.value === null || basis === null || basisStatus !== "confirmed" ? null : item.value - basis,
+        estimatedProfitLoss: item.value === null || basis === null || !estimateOnly ? null : item.value - basis,
         target: targetWeightForHolding(assetId, definition, plan),
         disputed,
       };
@@ -2599,17 +2598,23 @@ function renderPortfolioHoldings(portfolio, result, plan, asOf) {
             escapeHTML(meta.dotClass) +
             '"></span>' +
             escapeHTML(meta.title) +
-            "</span></th><td data-label=\"" + escapeHTML(columnLabels[1]) + "\">" +
+            '</span></th><td data-label="' +
+            escapeHTML(columnLabels[1]) +
+            '">' +
             escapeHTML(quantity) +
-            "</td><td data-label=\"" + escapeHTML(columnLabels[2]) + "\">" +
+            '</td><td data-label="' +
+            escapeHTML(columnLabels[2]) +
+            '">' +
             (missing
               ? '<span class="holdings-quote-warning">' + escapeHTML(quoteState) + "</span>"
               : escapeHTML(formatDisplayMoney(row.item.value))) +
-            "</td><td data-label=\"" + escapeHTML(columnLabels[3]) + "\">" +
-            (row.basis === null
-              ? "—"
-              : `${escapeHTML(basisDisplay)}<small>${escapeHTML(basisStatusLabel)}</small>`) +
-            '</td><td data-label="' + escapeHTML(columnLabels[4]) + '" class="' +
+            '</td><td data-label="' +
+            escapeHTML(columnLabels[3]) +
+            '">' +
+            (row.basis === null ? "—" : `${escapeHTML(basisDisplay)}<small>${escapeHTML(basisStatusLabel)}</small>`) +
+            '</td><td data-label="' +
+            escapeHTML(columnLabels[4]) +
+            '" class="' +
             pnlClass +
             '">' +
             escapeHTML(pnl) +
@@ -2617,13 +2622,19 @@ function renderPortfolioHoldings(portfolio, result, plan, asOf) {
             (pnlValue !== null && row.basis > 0
               ? "<small>" + escapeHTML(formatPercent((pnlValue / row.basis) * 100)) + "</small>"
               : "") +
-            "</td><td data-label=\"" + escapeHTML(columnLabels[5]) + "\">" +
+            '</td><td data-label="' +
+            escapeHTML(columnLabels[5]) +
+            '">' +
             (actualWeight === null ? "—" : escapeHTML(formatPercent(actualWeight))) +
-            "</td><td data-label=\"" + escapeHTML(columnLabels[6]) + "\">" +
+            '</td><td data-label="' +
+            escapeHTML(columnLabels[6]) +
+            '">' +
             (targetWeight === null
               ? escapeHTML(text("portfolio.noTarget", "هدف ثبت نشده"))
               : escapeHTML(formatPercent(targetWeight))) +
-            '</td><td data-label="' + escapeHTML(columnLabels[7]) + '" class="' +
+            '</td><td data-label="' +
+            escapeHTML(columnLabels[7]) +
+            '" class="' +
             statusClass +
             '"><strong>' +
             escapeHTML(quoteState) +
@@ -2917,7 +2928,8 @@ function loadModelSettings() {
           (supplied?.annualVolatility !== undefined && stored.annualVolatility !== Number(supplied.annualVolatility)) ||
           ["buyFee", "sellFee", "spread"].some((key) =>
             suppliedCosts && Object.hasOwn(suppliedCosts, key)
-              ? suppliedCosts[key] !== null && suppliedCosts[key] !== "" &&
+              ? suppliedCosts[key] !== null &&
+                suppliedCosts[key] !== "" &&
                 (normalized.transactionCosts[assetId][key] === null ||
                   normalized.transactionCosts[assetId][key] !== Number(suppliedCosts[key]))
               : false,
@@ -3173,9 +3185,7 @@ function updateMarketEntryAvailability() {
   const hasExistingTransactions = activePortfolioVersion(readPortfolio()).transactions.length > 0;
   const dateLabel = $("#portfolio-market-date-label");
   if (dateLabel)
-    dateLabel.textContent = hasExistingTransactions
-      ? text("portfolio.purchaseDate")
-      : text("portfolio.openingDate");
+    dateLabel.textContent = hasExistingTransactions ? text("portfolio.purchaseDate") : text("portfolio.openingDate");
   fields?.classList.remove("is-hidden");
   if (priceInput) priceInput.required = false;
   estimateField?.classList.toggle("is-hidden", !hasReferencePrice || creatingNamedAsset);
@@ -3186,9 +3196,7 @@ function updateMarketEntryAvailability() {
     }
   } else if (estimateCheckbox) estimateCheckbox.disabled = false;
   if (hint)
-    hint.textContent = hasReferencePrice
-      ? text("portfolio.unknownBasisHint")
-      : text("portfolio.unknownBasisHint");
+    hint.textContent = hasReferencePrice ? text("portfolio.unknownBasisHint") : text("portfolio.unknownBasisHint");
 }
 
 function renderEmergencyCoverage(portfolioResult = null) {
@@ -3268,9 +3276,7 @@ function renderPortfolio() {
   const profitLossLabel = $("#portfolio-profit-loss")?.previousElementSibling;
   if (profitLossLabel)
     profitLossLabel.textContent =
-      result.performanceStatus === "estimated"
-        ? text("portfolio.estimatedProfitLoss")
-        : text("portfolio.profitLoss");
+      result.performanceStatus === "estimated" ? text("portfolio.estimatedProfitLoss") : text("portfolio.profitLoss");
   $("#portfolio-cagr").textContent =
     !completeValuation || result.cagr === null ? text("portfolio.unavailable") : formatPercent(result.cagr * 100);
   $("#portfolio-real-return").textContent =
@@ -3342,10 +3348,7 @@ function renderPortfolio() {
       })
       .join(escapeHTML(listSeparator()))}`;
   else {
-    const qualityLabel = text(
-      `portfolio.valuationQuality.${result.quoteQualityStatus}`,
-      text("portfolio.complete"),
-    );
+    const qualityLabel = text(`portfolio.valuationQuality.${result.quoteQualityStatus}`, text("portfolio.complete"));
     const manualCount = heldAssetIds.filter((assetId) => result.values[assetId]?.manualPrice).length;
     quality.textContent = manualCount
       ? `${qualityLabel} · ${formatIRR(manualCount)} ${text("portfolio.manualQuoteCount")}`
@@ -3365,9 +3368,7 @@ function renderPortfolio() {
         month: "short",
         year: "2-digit",
         timeZone: REPORTING_TIME_ZONE,
-      }).format(
-        new Date(point.date),
-      ),
+      }).format(new Date(point.date)),
       value: point.value,
     }));
     contributionChart.innerHTML = barChartMarkup({
@@ -3789,26 +3790,38 @@ function renderBacktest(result) {
     const missingText = missing.length
       ? missing.map((asset) => text(`assets.${asset}.title`, assetMeta(asset).title)).join(listSeparator())
       : text("backtest.noUnavailableAssets");
-    const coverageRows = Object.entries(result?.rangesByAsset || {}).map(([asset, ranges]) => {
-      const label = text(`assets.${asset}.title`, assetMeta(asset).title);
-      const rangeText = ranges.length
-        ? ranges.map((range) => `${range.start}–${range.end} (${formatIRR(range.months)} ${text("backtest.months")})`).join(listSeparator())
-        : text("backtest.noRange");
-      return `<li><strong>${escapeHTML(label)}:</strong> ${escapeHTML(rangeText)}</li>`;
-    }).join("");
+    const coverageRows = Object.entries(result?.rangesByAsset || {})
+      .map(([asset, ranges]) => {
+        const label = text(`assets.${asset}.title`, assetMeta(asset).title);
+        const rangeText = ranges.length
+          ? ranges
+              .map((range) => `${range.start}–${range.end} (${formatIRR(range.months)} ${text("backtest.months")})`)
+              .join(listSeparator())
+          : text("backtest.noRange");
+        return `<li><strong>${escapeHTML(label)}:</strong> ${escapeHTML(rangeText)}</li>`;
+      })
+      .join("");
     const overlap = result?.jointRanges || [];
     const overlapText = overlap.length
-      ? overlap.map((range) => `${range.start}–${range.end} (${formatIRR(range.months)} ${text("backtest.months")})`).join(listSeparator())
+      ? overlap
+          .map((range) => `${range.start}–${range.end} (${formatIRR(range.months)} ${text("backtest.months")})`)
+          .join(listSeparator())
       : text("backtest.noRange");
-    const requested = Number(result?.requiredMonths) || Math.round((numberFromInput($("#simulation-horizon")?.value) || 5) * 12);
+    const requested =
+      Number(result?.requiredMonths) || Math.round((numberFromInput($("#simulation-horizon")?.value) || 5) * 12);
     const longest = Number(result?.longestContinuousMonths) || 0;
     const supportedYears = Math.min(50, Math.floor(longest / 12));
     const currentYears = Math.max(1, Math.round(numberFromInput($("#simulation-horizon")?.value) || 5));
-    const durationOptions = Array.from({ length: Math.max(0, Math.min(supportedYears, currentYears - 1)) }, (_, index) => index + 1);
+    const durationOptions = Array.from(
+      { length: Math.max(0, Math.min(supportedYears, currentYears - 1)) },
+      (_, index) => index + 1,
+    );
     const recovery = durationOptions.length
       ? `<div class="backtest-recovery"><label for="backtest-supported-horizon">${escapeHTML(text("backtest.chooseSupportedDuration"))}</label><select id="backtest-supported-horizon" required><option value="" selected disabled>${escapeHTML(text("backtest.selectDuration"))}</option>${durationOptions.map((years) => `<option value="${years}">${formatIRR(years)} ${escapeHTML(text(years === 1 ? "backtest.yearSingular" : "backtest.years"))}</option>`).join("")}</select><button class="secondary-button" type="button" data-backtest-horizon-run disabled>${escapeHTML(text("backtest.runSupportedDuration"))}</button></div>`
       : `<p class="data-note">${escapeHTML(text("backtest.noSupportedDuration"))}</p>`;
-    const fetchFailure = result?.historyFetchError ? `<p class="data-note data-note-warning">${escapeHTML(text("backtest.historyFetchFailed"))}</p>` : "";
+    const fetchFailure = result?.historyFetchError
+      ? `<p class="data-note data-note-warning">${escapeHTML(text("backtest.historyFetchFailed"))}</p>`
+      : "";
     backtestEl.innerHTML = `<div class="empty-state"><strong>${escapeHTML(text("backtest.coverageFailureTitle"))}</strong><p>${escapeHTML(text("backtest.coverageReason"))} ${escapeHTML(result?.reason === "insufficient-continuous-overlap" ? text("backtest.reasonContinuous") : result?.reason === "insufficient-observed-history" ? text("backtest.reasonLength") : text("backtest.reasonUnavailable"))} ${escapeHTML(missingText)} ${escapeHTML(text("backtest.noAssumedSubstitute"))}</p><p>${escapeHTML(text("backtest.requiredFrequency"))}: ${escapeHTML(text("backtest.monthlyFrequency"))} · ${escapeHTML(text("backtest.requestedMonths"))}: ${formatIRR(requested)} · ${escapeHTML(text("backtest.longestOverlap"))}: ${formatIRR(longest)} ${escapeHTML(text("backtest.months"))}</p><p><strong>${escapeHTML(text("backtest.overlapRanges"))}:</strong> ${escapeHTML(overlapText)}</p>${coverageRows ? `<details><summary>${escapeHTML(text("backtest.assetRanges"))}</summary><ul>${coverageRows}</ul></details>` : ""}${recovery}${fetchFailure}</div>`;
     const select = $("#backtest-supported-horizon");
     const button = backtestEl.querySelector("[data-backtest-horizon-run]");
@@ -4286,7 +4299,10 @@ function calculatePlan(inputs) {
   const ledger = calculatePortfolio(readPortfolio(), liveMarket || {});
   const valuationComplete = !ledger.transactions.length || ledger.missingPrices.length === 0;
   const currentHoldings = Object.fromEntries(
-    PLAN_ASSET_KEYS.map((asset) => [asset, valuationComplete ? Math.max(0, Number(ledger.values[asset]?.value) || 0) : 0]),
+    PLAN_ASSET_KEYS.map((asset) => [
+      asset,
+      valuationComplete ? Math.max(0, Number(ledger.values[asset]?.value) || 0) : 0,
+    ]),
   );
   const recommendation = recommendAllocation(inputs.profile, {
     enabledAssets: inputs.selectedAssets,
@@ -4567,11 +4583,7 @@ function handleMarketAssetSubmit(event) {
     else {
       const created = createPortfolioAsset(portfolio, { title: newTitle, kind: "stock", unit: "share" }, now);
       if (!created.asset) {
-        showPortfolioFormError(
-          "#portfolio-market-asset-form",
-          "#portfolio-new-stock-title",
-          "portfolio.invalidStock",
-        );
+        showPortfolioFormError("#portfolio-market-asset-form", "#portfolio-new-stock-title", "portfolio.invalidStock");
         return;
       }
       portfolio = created.portfolio;
@@ -4599,11 +4611,7 @@ function handleMarketAssetSubmit(event) {
       assetId,
       quantity,
       unitPrice: enteredAcquisitionPrice,
-      costBasisStatus: enteredAcquisitionPrice
-        ? "confirmed"
-        : useReferenceEstimate
-          ? "estimated"
-          : "unknown",
+      costBasisStatus: enteredAcquisitionPrice ? "confirmed" : useReferenceEstimate ? "estimated" : "unknown",
       ...(useReferenceEstimate ? { unitPrice: marketPrice } : {}),
       source: "market-asset-entry",
       note: "Market asset entry",
@@ -4655,27 +4663,15 @@ function handleManualQuoteSubmit(event) {
   const price = numberFromInput(priceInput);
   const observedAt = dateTimeInputToIso($("#manual-quote-date").value);
   if (!assetId) {
-    showPortfolioFormError(
-      "#manual-quote-form",
-      "#manual-quote-asset",
-      "portfolio.transactionErrors.invalidDetails",
-    );
+    showPortfolioFormError("#manual-quote-form", "#manual-quote-asset", "portfolio.transactionErrors.invalidDetails");
     return;
   }
   if (!priceInput || !(price > 0)) {
-    showPortfolioFormError(
-      "#manual-quote-form",
-      "#manual-quote-price",
-      "portfolio.transactionErrors.invalidAmount",
-    );
+    showPortfolioFormError("#manual-quote-form", "#manual-quote-price", "portfolio.transactionErrors.invalidAmount");
     return;
   }
   if (!observedAt || new Date(observedAt).getTime() > Date.now() + 60_000) {
-    showPortfolioFormError(
-      "#manual-quote-form",
-      "#manual-quote-date",
-      "portfolio.transactionErrors.invalidDate",
-    );
+    showPortfolioFormError("#manual-quote-form", "#manual-quote-date", "portfolio.transactionErrors.invalidDate");
     return;
   }
   const portfolio = readPortfolio();
@@ -4721,16 +4717,16 @@ function updateAdvancedTransactionFields() {
           ? text("portfolio.quantity")
           : text("portfolio.amount");
   $("#advanced-quantity").disabled = !quantityType;
-  $("#advanced-quantity").required = ["OPENING", "BUY", "SELL", "TRANSFER", "BASIS_CORRECTION", "ADJUSTMENT"].includes(type);
+  $("#advanced-quantity").required = ["OPENING", "BUY", "SELL", "TRANSFER", "BASIS_CORRECTION", "ADJUSTMENT"].includes(
+    type,
+  );
   $("#advanced-amount").disabled = quantityType && type !== "TRANSFER" && !basisCorrection;
   $("#advanced-amount").required = basisCorrection || cashFlow;
   $("#advanced-target-quantity").required = transfer;
   $("#advanced-unit-price").required = false;
   const amountLabel = $("#advanced-amount").previousElementSibling;
   if (amountLabel)
-    amountLabel.textContent = basisCorrection
-      ? text("portfolio.actualTotalBasis")
-      : text("portfolio.amount");
+    amountLabel.textContent = basisCorrection ? text("portfolio.actualTotalBasis") : text("portfolio.amount");
   const dateLabel = $("#advanced-date-label");
   if (dateLabel) {
     const dateLabelKey =
@@ -4747,7 +4743,8 @@ function updateAdvancedTransactionFields() {
   }
   const unitPriceLabel = $("#advanced-unit-price-label");
   if (unitPriceLabel)
-    unitPriceLabel.textContent = type === "ADJUSTMENT" ? text("portfolio.correctionUnitCost") : text("portfolio.unitPrice");
+    unitPriceLabel.textContent =
+      type === "ADJUSTMENT" ? text("portfolio.correctionUnitCost") : text("portfolio.unitPrice");
   $("#advanced-unit-price").placeholder =
     type === "ADJUSTMENT" ? text("portfolio.correctionCostOptional") : text("portfolio.marketPriceFallback");
   $("#advanced-asset").disabled = cashFlow;
@@ -4802,7 +4799,13 @@ function handleAdvancedTransactionSubmit(event) {
   const amountTypes = ["DIVIDEND", "DEPOSIT", "WITHDRAWAL", "BASIS_CORRECTION"];
   const quantity = numberFromInput($("#advanced-quantity").value);
   const amount = numberFromInput($("#advanced-amount").value);
-  if (quantityTypes.includes(type) && (!$("#advanced-quantity").value.trim() || !Number.isFinite(quantity) || (type !== "ADJUSTMENT" && quantity <= 0) || (type === "ADJUSTMENT" && quantity === 0))) {
+  if (
+    quantityTypes.includes(type) &&
+    (!$("#advanced-quantity").value.trim() ||
+      !Number.isFinite(quantity) ||
+      (type !== "ADJUSTMENT" && quantity <= 0) ||
+      (type === "ADJUSTMENT" && quantity === 0))
+  ) {
     showAdvancedTransactionError("#advanced-quantity", "portfolio.transactionErrors.invalidQuantity");
     return;
   }
@@ -4836,7 +4839,11 @@ function handleAdvancedTransactionSubmit(event) {
   const transaction = createTransaction(input, liveMarket || {}, now, readPortfolio());
   if (!transaction) {
     showAdvancedTransactionError(
-      type === "SELL" ? "#advanced-unit-price" : type === "BASIS_CORRECTION" ? "#advanced-amount" : "#advanced-quantity",
+      type === "SELL"
+        ? "#advanced-unit-price"
+        : type === "BASIS_CORRECTION"
+          ? "#advanced-amount"
+          : "#advanced-quantity",
       type === "SELL" ? "portfolio.transactionErrors.sellPriceRequired" : "portfolio.transactionErrors.invalidDetails",
     );
     return;
@@ -5362,7 +5369,7 @@ async function loadCopy() {
 
 function bindEvents() {
   document.addEventListener("keydown", containAssetDrawerTab, true);
-  $$('[data-settings-focus]').forEach((button) =>
+  $$("[data-settings-focus]").forEach((button) =>
     button.addEventListener("click", () => {
       const target = document.getElementById(button.dataset.settingsFocus || "");
       target?.scrollIntoView({ behavior: "auto", block: "start" });
@@ -5412,7 +5419,7 @@ function bindEvents() {
   });
   $("#save-plan-result")?.addEventListener("click", savePlanPreview);
   allocationListEl?.addEventListener("change", updatePlanWeights);
-  $$('[data-add-existing-holdings]').forEach((button) =>
+  $$("[data-add-existing-holdings]").forEach((button) =>
     button.addEventListener("click", () => {
       navigationController.goTo("portfolio");
       const section = $("#portfolio-section");

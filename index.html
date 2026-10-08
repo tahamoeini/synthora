@@ -2,7 +2,9 @@
 <html lang="fa" dir="rtl">
   <head>
     <meta charset="UTF-8" />
-    <script>document.documentElement.dataset.hydrating = "true";</script>
+    <script>
+      document.documentElement.dataset.hydrating = "true";
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="author" content="Taha Moeini" />
     <meta name="creator" content="Taha Moeini" />
@@ -166,7 +168,9 @@
               <div class="dashboard-icon">↗</div>
               <div>
                 <strong id="dashboard-onboarding-title">برای شروع، موجودی فعلی‌ات را ثبت کن</strong>
-                <p id="dashboard-onboarding-copy">می‌توانی بدون ساخت برنامه، موجودی فعلی‌ات را در دفتر محلی وارد کنی.</p>
+                <p id="dashboard-onboarding-copy">
+                  می‌توانی بدون ساخت برنامه، موجودی فعلی‌ات را در دفتر محلی وارد کنی.
+                </p>
               </div>
               <div class="dashboard-onboarding-actions">
                 <button class="primary-button dashboard-action" data-add-existing-holdings type="button">
@@ -177,7 +181,12 @@
               </div>
             </div>
 
-            <section id="dashboard-summary-grid" class="dashboard-summary-grid" aria-label="خلاصه مالی" aria-live="polite">
+            <section
+              id="dashboard-summary-grid"
+              class="dashboard-summary-grid"
+              aria-label="خلاصه مالی"
+              aria-live="polite"
+            >
               <article class="summary-card">
                 <span class="summary-label">ارزش فعلی پرتفوی</span><strong id="dashboard-current-value">—</strong
                 ><small id="dashboard-current-value-note">هنوز دفتر پرتفوی ثبت نشده</small>
@@ -338,7 +347,9 @@
               </div>
               <div class="hero-card">
                 <span>فرض اولیه قابل ویرایش</span><strong>۲۰٪</strong
-                ><small>این درصد فقط ورودی شروع است، توصیه شخصی یا مبلغ امن نیست؛ آن را بر اساس شرایط خودت ویرایش کن.</small>
+                ><small
+                  >این درصد فقط ورودی شروع است، توصیه شخصی یا مبلغ امن نیست؛ آن را بر اساس شرایط خودت ویرایش کن.</small
+                >
                 <div><span>منطق</span><b>داده + سابقه + محدودیت ریسک</b></div>
                 <div><span>خروجی</span><b>مبلغ، وزن، دامنه و دلیل</b></div>
               </div>
@@ -577,13 +588,23 @@
                 <div class="field">
                   <label for="simulation-horizon">افق زمانی</label>
                   <div class="unit-input">
-                    <input id="simulation-horizon" type="number" min="1" max="50" step="any" value="5" required /><span>سال</span>
+                    <input id="simulation-horizon" type="number" min="1" max="50" step="any" value="5" required /><span
+                      >سال</span
+                    >
                   </div>
                 </div>
                 <div class="field">
                   <label for="simulation-growth">رشد سالانه‌ی واریز</label>
                   <div class="unit-input">
-                    <input id="simulation-growth" type="number" min="-50" max="200" step="any" value="0" required /><span>٪</span>
+                    <input
+                      id="simulation-growth"
+                      type="number"
+                      min="-50"
+                      max="200"
+                      step="any"
+                      value="0"
+                      required
+                    /><span>٪</span>
                   </div>
                 </div>
               </div>
@@ -598,7 +619,15 @@
                 <div class="field">
                   <label for="simulation-inflation">تورم سناریو</label>
                   <div class="unit-input">
-                    <input id="simulation-inflation" type="number" min="-20" max="300" step="any" value="30" required /><span>٪</span>
+                    <input
+                      id="simulation-inflation"
+                      type="number"
+                      min="-20"
+                      max="300"
+                      step="any"
+                      value="30"
+                      required
+                    /><span>٪</span>
                   </div>
                 </div>
                 <div class="field">
@@ -756,7 +785,9 @@
               </summary>
               <div class="collapsible-content">
                 <div class="section-actions">
-                  <span class="panel-intro">این بخش فقط برنامه‌های پیشنهادی را نگه می‌دارد؛ با آن تراکنش یا سرمایه‌گذاری ثبت نمی‌شود.</span>
+                  <span class="panel-intro"
+                    >این بخش فقط برنامه‌های پیشنهادی را نگه می‌دارد؛ با آن تراکنش یا سرمایه‌گذاری ثبت نمی‌شود.</span
+                  >
                   <div class="history-actions">
                     <button id="export-history" class="secondary-button" type="button">خروجی برنامه‌ها</button
                     ><button id="import-history" class="secondary-button" type="button">ورود برنامه‌ها</button
@@ -819,7 +850,7 @@
                 ><label class="history-view-select"
                   >واحد قیمت<select id="history-currency">
                     <option value="TOMAN" selected>تومان</option>
-                    <option value="USD">دلار</option>
+                    <option value="USD">دلار آمریکا</option>
                   </select></label
                 >
                 <details class="history-asset-filter" open>
@@ -1004,14 +1035,21 @@
                         aria-describedby="portfolio-market-error portfolio-market-acquisition-hint"
                         placeholder="فقط اگر رسید داری"
                       /><small id="portfolio-market-acquisition-hint"
-                        >اگر بهای واقعی را نمی‌دانی، خالی بگذار؛ قیمت مرجع فقط برآورد است و در نبود آن بهای تمام‌شده نامشخص می‌ماند.</small
+                        >اگر بهای واقعی را نمی‌دانی، خالی بگذار؛ قیمت مرجع فقط برآورد است و در نبود آن بهای تمام‌شده
+                        نامشخص می‌ماند.</small
                       >
                       <label id="portfolio-market-reference-estimate-field" class="check-line is-hidden">
                         <input id="portfolio-market-use-reference-estimate" type="checkbox" />
                         <span>قیمت مرجع را فقط به‌عنوان برآورد بهای تمام‌شده ثبت کن</span>
                       </label>
                     </div>
-                    <div id="portfolio-market-error" class="data-note data-note-warning" data-form-error role="alert" hidden></div>
+                    <div
+                      id="portfolio-market-error"
+                      class="data-note data-note-warning"
+                      data-form-error
+                      role="alert"
+                      hidden
+                    ></div>
                     <button class="secondary-button" type="submit">ثبت در دفتر تراکنش</button>
                   </form>
                   <div id="portfolio-stock-list" class="stock-list"></div>
@@ -1048,7 +1086,13 @@
                         aria-describedby="manual-quote-error"
                       />
                     </div>
-                    <div id="manual-quote-error" class="data-note data-note-warning" data-form-error role="alert" hidden></div>
+                    <div
+                      id="manual-quote-error"
+                      class="data-note data-note-warning"
+                      data-form-error
+                      role="alert"
+                      hidden
+                    ></div>
                     <button class="secondary-button" type="submit">ثبت قیمت در تاریخچه</button>
                   </form>
                   <div id="portfolio-manual-price-log" class="history-list"></div>
@@ -1116,15 +1160,33 @@
                     </div>
                     <div class="field">
                       <label id="advanced-date-label" for="advanced-date">زمان تراکنش (تا دقیقه)</label
-                      ><input id="advanced-date" type="datetime-local" step="60" required aria-describedby="advanced-transaction-error" />
+                      ><input
+                        id="advanced-date"
+                        type="datetime-local"
+                        step="60"
+                        required
+                        aria-describedby="advanced-transaction-error"
+                      />
                     </div>
                     <div class="field">
                       <label id="advanced-quantity-label" for="advanced-quantity">مقدار</label
-                      ><input id="advanced-quantity" type="text" inputmode="decimal" data-number-input aria-describedby="advanced-transaction-error" />
+                      ><input
+                        id="advanced-quantity"
+                        type="text"
+                        inputmode="decimal"
+                        data-number-input
+                        aria-describedby="advanced-transaction-error"
+                      />
                     </div>
                     <div class="field">
                       <label for="advanced-target-quantity">مقدار مقصد</label
-                      ><input id="advanced-target-quantity" type="text" inputmode="decimal" data-number-input aria-describedby="advanced-transaction-error" />
+                      ><input
+                        id="advanced-target-quantity"
+                        type="text"
+                        inputmode="decimal"
+                        data-number-input
+                        aria-describedby="advanced-transaction-error"
+                      />
                     </div>
                     <div class="field">
                       <label for="advanced-unit-price">قیمت واحد</label
@@ -1139,7 +1201,13 @@
                     </div>
                     <div class="field">
                       <label for="advanced-amount">مبلغ</label
-                      ><input id="advanced-amount" type="text" inputmode="decimal" data-number-input aria-describedby="advanced-transaction-error" />
+                      ><input
+                        id="advanced-amount"
+                        type="text"
+                        inputmode="decimal"
+                        data-number-input
+                        aria-describedby="advanced-transaction-error"
+                      />
                     </div>
                     <div class="field">
                       <label for="advanced-fee">کارمزد</label
@@ -1247,7 +1315,12 @@
                 <h2 id="settings-view-title">تنظیمات</h2>
                 <p>ظاهر برنامه و داده‌های ذخیره‌شده روی همین مرورگر را مدیریت کن.</p>
               </div>
-              <div class="settings-page-actions"><span class="page-badge">محلی و قابل کنترل</span><button class="secondary-button" type="button" data-settings-focus="settings-backup-card">داده و پشتیبان</button></div>
+              <div class="settings-page-actions">
+                <span class="page-badge">محلی و قابل کنترل</span
+                ><button class="secondary-button" type="button" data-settings-focus="settings-backup-card">
+                  داده و پشتیبان
+                </button>
+              </div>
             </div>
             <div class="settings-grid">
               <h2 class="settings-group-heading">تنظیمات و ترجیحات</h2>
@@ -1373,10 +1446,19 @@
                     <h3>پشتیبان کامل داده‌های شخصی</h3>
                   </div>
                 </div>
-                <p>پشتیبان کامل شامل پروفایل و حقوق، برنامه‌های ذخیره‌شده، دفتر تراکنش و قیمت‌های دستی، فرض‌های مدل و ترجیحات ظاهری است. کلیدهای ارائه‌دهنده، کوکی‌ها، cache بازار و کلید بازیابی همگام‌سازی در فایل نیستند.</p>
-                <div id="settings-data-status" class="transfer-status transfer-neutral" role="status" aria-live="polite"></div>
+                <p>
+                  پشتیبان کامل شامل پروفایل و حقوق، برنامه‌های ذخیره‌شده، دفتر تراکنش و قیمت‌های دستی، فرض‌های مدل و
+                  ترجیحات ظاهری است. کلیدهای ارائه‌دهنده، کوکی‌ها، cache بازار و کلید بازیابی همگام‌سازی در فایل نیستند.
+                </p>
+                <div
+                  id="settings-data-status"
+                  class="transfer-status transfer-neutral"
+                  role="status"
+                  aria-live="polite"
+                ></div>
                 <div class="settings-actions">
-                  <button id="settings-export-data" class="secondary-button" type="button">ساخت فایل پشتیبان کامل</button
+                  <button id="settings-export-data" class="secondary-button" type="button">
+                    ساخت فایل پشتیبان کامل</button
                   ><button id="settings-import-data" class="secondary-button" type="button">پیش‌نمایش و بازیابی</button
                   ><input id="settings-file" type="file" accept="application/json,.json" hidden />
                 </div>
@@ -1413,7 +1495,15 @@
                   <div class="field">
                     <label for="settings-inflation-rate">تورم سالانه‌ی مدل</label>
                     <div class="unit-input">
-                      <input id="settings-inflation-rate" type="number" min="-20" max="300" step="any" value="30" required /><span>٪</span>
+                      <input
+                        id="settings-inflation-rate"
+                        type="number"
+                        min="-20"
+                        max="300"
+                        step="any"
+                        value="30"
+                        required
+                      /><span>٪</span>
                     </div>
                     <small id="settings-inflation-source">منبع تورم هنوز دریافت نشده.</small
                     ><button id="refresh-inflation" class="text-button" type="button">
@@ -1423,9 +1513,15 @@
                   <div class="field">
                     <label for="settings-contribution-growth">رشد سالانه‌ی واریز</label>
                     <div class="unit-input">
-                      <input id="settings-contribution-growth" type="number" min="-50" max="200" step="any" value="0" required /><span
-                        >٪</span
-                      >
+                      <input
+                        id="settings-contribution-growth"
+                        type="number"
+                        min="-50"
+                        max="200"
+                        step="any"
+                        value="0"
+                        required
+                      /><span>٪</span>
                     </div>
                   </div>
                   <div class="field">
@@ -1440,9 +1536,15 @@
                   <div class="field">
                     <label for="settings-drift-threshold">آستانه انحراف هدف برای واریز جدید</label>
                     <div class="unit-input">
-                      <input id="settings-drift-threshold" type="number" min="0" max="25" step="any" value="3" required /><span
-                        >واحد درصد</span
-                      >
+                      <input
+                        id="settings-drift-threshold"
+                        type="number"
+                        min="0"
+                        max="25"
+                        step="any"
+                        value="3"
+                        required
+                      /><span>واحد درصد</span>
                     </div>
                   </div>
                 </div>

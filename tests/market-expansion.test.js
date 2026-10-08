@@ -322,7 +322,10 @@ test("quantity-only market asset setup remains available when no valid price exi
   assert.equal(valuation.values.platinum.value, null);
   assert.equal(valuation.profitLoss, null);
   assert.equal(valuation.sleeveValues, null);
-  assert.equal(Object.values(valuation.partialSleeveValues).every((value) => value === 0), true);
+  assert.equal(
+    Object.values(valuation.partialSleeveValues).every((value) => value === 0),
+    true,
+  );
   assert.equal(valuation.currentValue, null);
   assert.deepEqual(valuation.missingPrices, ["platinum"]);
 });
@@ -481,9 +484,33 @@ test("accepted estimates and stale quotes remain qualified in complete portfolio
 
 test("cost basis follows buys, average-cost sales, and transfers without changing ledger values", () => {
   const transactions = [
-    { type: "BUY", assetId: "gold", quantity: 2, unitPrice: 100, costBasisStatus: "confirmed", fee: 10, date: "2026-01-01" },
-    { type: "BUY", assetId: "gold", quantity: 1, unitPrice: 130, costBasisStatus: "confirmed", fee: 0, date: "2026-01-02" },
-    { type: "SELL", assetId: "gold", quantity: 1, unitPrice: 150, costBasisStatus: "confirmed", fee: 0, date: "2026-01-03" },
+    {
+      type: "BUY",
+      assetId: "gold",
+      quantity: 2,
+      unitPrice: 100,
+      costBasisStatus: "confirmed",
+      fee: 10,
+      date: "2026-01-01",
+    },
+    {
+      type: "BUY",
+      assetId: "gold",
+      quantity: 1,
+      unitPrice: 130,
+      costBasisStatus: "confirmed",
+      fee: 0,
+      date: "2026-01-02",
+    },
+    {
+      type: "SELL",
+      assetId: "gold",
+      quantity: 1,
+      unitPrice: 150,
+      costBasisStatus: "confirmed",
+      fee: 0,
+      date: "2026-01-03",
+    },
     { type: "TRANSFER", assetId: "gold", quantity: 1, targetAssetId: "silver", targetQuantity: 2, date: "2026-01-04" },
   ];
   const basis = portfolioCostBasis(transactions, "2026-01-05");
@@ -523,10 +550,13 @@ test("monthly contribution buckets use UTC Gregorian boundaries and identify the
     "2026-11-30T23:00:00.000Z",
     2,
   );
-  assert.deepEqual(series.map((point) => [point.date.slice(0, 10), point.value, point.calendar]), [
-    ["2026-10-01", 10, "gregory"],
-    ["2026-11-01", 20, "gregory"],
-  ]);
+  assert.deepEqual(
+    series.map((point) => [point.date.slice(0, 10), point.value, point.calendar]),
+    [
+      ["2026-10-01", 10, "gregory"],
+      ["2026-11-01", 20, "gregory"],
+    ],
+  );
   assert.equal(
     new Intl.DateTimeFormat("en-US-u-ca-gregory", { month: "long", timeZone: "UTC" }).format(
       new Date("2026-10-01T00:00:00.000Z"),

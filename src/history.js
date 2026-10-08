@@ -258,8 +258,7 @@ export function sanitizeHistoryEntry(entry) {
   if (contributionPlan) {
     result.contributionAmounts = contributionPlan;
     result.contributionPlan = contributionPlan;
-    result.contributionWeights =
-      sanitizePercentMap(entry.contributionWeights) || weightsForAmounts(contributionPlan);
+    result.contributionWeights = sanitizePercentMap(entry.contributionWeights) || weightsForAmounts(contributionPlan);
   }
   const currentWeights = sanitizePercentMap(entry.currentWeights);
   if (currentWeights) result.currentWeights = currentWeights;
@@ -277,7 +276,11 @@ export function sanitizeHistoryEntry(entry) {
 }
 
 export function createPlanHistoryRecord(plan, existingHistory = [], createdAt = new Date().toISOString()) {
-  const version = Math.max(0, ...(Array.isArray(existingHistory) ? existingHistory : []).map((entry) => Number(entry?.planVersion) || 0)) + 1;
+  const version =
+    Math.max(
+      0,
+      ...(Array.isArray(existingHistory) ? existingHistory : []).map((entry) => Number(entry?.planVersion) || 0),
+    ) + 1;
   const cryptoApi = globalThis.crypto;
   const id =
     typeof cryptoApi?.randomUUID === "function"
@@ -400,29 +403,50 @@ function validateModelSettings(settings) {
   const drift = finite(settings.targetDriftThresholdPercent);
   if (
     Number(settings.version) !== 3 ||
-    rate === null || rate < -0.2 || rate > 3 ||
-    growth === null || growth < -0.5 || growth > 2 ||
+    rate === null ||
+    rate < -0.2 ||
+    rate > 3 ||
+    growth === null ||
+    growth < -0.5 ||
+    growth > 2 ||
     ![1000, 2000, 5000, 10000].includes(Number(settings.paths)) ||
     typeof settings.rebalance !== "boolean" ||
-    drift === null || drift < 0 || drift > 25 ||
-    !settings.assumptions || typeof settings.assumptions !== "object" || Array.isArray(settings.assumptions) ||
-    !settings.transactionCosts || typeof settings.transactionCosts !== "object" || Array.isArray(settings.transactionCosts)
-  ) throw new Error("invalid-settings-format");
+    drift === null ||
+    drift < 0 ||
+    drift > 25 ||
+    !settings.assumptions ||
+    typeof settings.assumptions !== "object" ||
+    Array.isArray(settings.assumptions) ||
+    !settings.transactionCosts ||
+    typeof settings.transactionCosts !== "object" ||
+    Array.isArray(settings.transactionCosts)
+  )
+    throw new Error("invalid-settings-format");
   SIMULATION_ASSET_KEYS.forEach((assetId) => {
     const assumption = settings.assumptions[assetId];
     const costs = settings.transactionCosts[assetId];
     const annualReturn = finite(assumption?.annualReturn);
     const annualVolatility = finite(assumption?.annualVolatility);
     if (
-      !assumption || typeof assumption !== "object" || Array.isArray(assumption) ||
+      !assumption ||
+      typeof assumption !== "object" ||
+      Array.isArray(assumption) ||
       Object.keys(assumption).some((key) => !["annualReturn", "annualVolatility"].includes(key)) ||
-      annualReturn === null || annualReturn < -0.99 || annualReturn > 3 || annualVolatility === null || annualVolatility < 0 || annualVolatility > 3
+      annualReturn === null ||
+      annualReturn < -0.99 ||
+      annualReturn > 3 ||
+      annualVolatility === null ||
+      annualVolatility < 0 ||
+      annualVolatility > 3
     )
       throw new Error("invalid-settings-format");
     if (
-      !costs || typeof costs !== "object" || Array.isArray(costs) ||
+      !costs ||
+      typeof costs !== "object" ||
+      Array.isArray(costs) ||
       Object.keys(costs).some((key) => !["buyFee", "sellFee", "spread"].includes(key))
-    ) throw new Error("invalid-settings-format");
+    )
+      throw new Error("invalid-settings-format");
     ["buyFee", "sellFee", "spread"].forEach((key) => {
       const fee = costs[key];
       if (fee !== null && (finite(fee) === null || Number(fee) < 0 || Number(fee) > 0.99))
@@ -432,13 +456,18 @@ function validateModelSettings(settings) {
   if (
     Object.keys(settings.assumptions).some((assetId) => !SIMULATION_ASSET_KEYS.includes(assetId)) ||
     Object.keys(settings.transactionCosts).some((assetId) => !SIMULATION_ASSET_KEYS.includes(assetId)) ||
-    SIMULATION_ASSET_KEYS.some((assetId) => !Object.hasOwn(settings.assumptions, assetId) || !Object.hasOwn(settings.transactionCosts, assetId))
-  ) throw new Error("invalid-settings-format");
+    SIMULATION_ASSET_KEYS.some(
+      (assetId) => !Object.hasOwn(settings.assumptions, assetId) || !Object.hasOwn(settings.transactionCosts, assetId),
+    )
+  )
+    throw new Error("invalid-settings-format");
   if (
     (settings.inflationSource !== null && typeof settings.inflationSource !== "string") ||
     (settings.inflationPeriod !== null && typeof settings.inflationPeriod !== "string") ||
-    (settings.inflationFetchedAt !== null && (typeof settings.inflationFetchedAt !== "string" || !validDate(settings.inflationFetchedAt)))
-  ) throw new Error("invalid-settings-format");
+    (settings.inflationFetchedAt !== null &&
+      (typeof settings.inflationFetchedAt !== "string" || !validDate(settings.inflationFetchedAt)))
+  )
+    throw new Error("invalid-settings-format");
   return settings;
 }
 
@@ -450,7 +479,8 @@ function validatePersonalPreferences(preferences) {
     !["fa", "en", "ru", "zh"].includes(preferences.locale) ||
     ![null, "TOMAN", "USD", "RUB", "CNY"].includes(preferences.currency) ||
     !["system", "light", "dark"].includes(preferences.theme)
-  ) throw new Error("invalid-preferences-format");
+  )
+    throw new Error("invalid-preferences-format");
   return { locale: preferences.locale, currency: preferences.currency, theme: preferences.theme };
 }
 
@@ -475,10 +505,15 @@ export function createPersonalBackup({ profile, history, portfolio, modelSetting
 
 export function parsePersonalBackup(value) {
   if (
-    !value || typeof value !== "object" || Array.isArray(value) ||
-    value.schema !== PERSONAL_BACKUP_SCHEMA || Number(value.version) !== PERSONAL_BACKUP_VERSION ||
-    value.currencyUnit !== "TOMAN" || !Array.isArray(value.history)
-  ) throw new Error("invalid-personal-backup-format");
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    value.schema !== PERSONAL_BACKUP_SCHEMA ||
+    Number(value.version) !== PERSONAL_BACKUP_VERSION ||
+    value.currencyUnit !== "TOMAN" ||
+    !Array.isArray(value.history)
+  )
+    throw new Error("invalid-personal-backup-format");
   const history = normalizeHistoryEntries(value.history, Infinity);
   if (history.length !== value.history.length) throw new Error("invalid-history-format");
   const portfolio = validateImportedPortfolio(value.portfolio);

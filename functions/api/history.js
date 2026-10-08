@@ -63,13 +63,15 @@ const SOURCE_URLS = Object.freeze({
   TGJU: "https://www.tgju.org/",
   "Yahoo Finance": "https://finance.yahoo.com/",
   CoinGecko: "https://www.coingecko.com/",
-  Binance: "https://developers.binance.com/docs/binance-spot-api-docs/rest-api/market-data-endpoints#klinecandlestick-data",
+  Binance:
+    "https://developers.binance.com/docs/binance-spot-api-docs/rest-api/market-data-endpoints#klinecandlestick-data",
   Coinbase: "https://docs.cdp.coinbase.com/api-reference/exchange-api/rest-api/products/get-product-candles",
   Kraken: "https://docs.kraken.com/api-reference/market-data/get-ohlc-data",
   "FRED / IMF copper": "https://fred.stlouisfed.org/series/PCOPPUSDM",
   "Gold API": "https://gold-api.com/docs",
   TSETMC: TSETMC_INDEX_HISTORY_URL,
-  Nobitex: "https://apidocs.nobitex.ir/market_data/%D8%AF%D8%B1%DB%8C%D8%A7%D9%81%D8%AA-%D8%AF%D8%A7%D8%AF%D9%87-%D9%87%D8%A7%DB%8C-ohlc",
+  Nobitex:
+    "https://apidocs.nobitex.ir/market_data/%D8%AF%D8%B1%DB%8C%D8%A7%D9%81%D8%AA-%D8%AF%D8%A7%D8%AF%D9%87-%D9%87%D8%A7%DB%8C-ohlc",
   ChartGoldPrice: "https://www.chartgoldprice.com/gold-price-api",
 });
 
@@ -180,11 +182,7 @@ function jalaliDateToIso(jalaliDate) {
   if (jy < 1200 || jy > 1600 || jm < 1 || jm > 12 || jd < 1 || jd > (jm <= 6 ? 31 : 30)) return null;
   const shiftedYear = jy + 1595;
   let days =
-    -355668 +
-    365 * shiftedYear +
-    Math.floor(shiftedYear / 33) * 8 +
-    Math.floor(((shiftedYear % 33) + 3) / 4) +
-    jd;
+    -355668 + 365 * shiftedYear + Math.floor(shiftedYear / 33) * 8 + Math.floor(((shiftedYear % 33) + 3) / 4) + jd;
   days += jm < 7 ? (jm - 1) * 31 : (jm - 7) * 30 + 186;
   let gy = 400 * Math.floor(days / 146097);
   days %= 146097;
@@ -225,9 +223,7 @@ async function fetchTsetmcIndexSeries() {
     if (!row || typeof row !== "object") return [];
     const date = tsetmcDateToIso(row.dEven ?? row.date ?? row.Date);
     const value = Number(row.xNivIn ?? row.indexValue ?? row.close ?? row.value);
-    return date && Number.isFinite(value) && value > 0
-      ? [{ date, value, source: "TSETMC", currency: "INDEX" }]
-      : [];
+    return date && Number.isFinite(value) && value > 0 ? [{ date, value, source: "TSETMC", currency: "INDEX" }] : [];
   });
   if (points.length < 2) throw new Error("provider-history-empty");
   return { points, source: "TSETMC", sourceUrl: TSETMC_INDEX_HISTORY_URL, currency: "INDEX" };
@@ -267,14 +263,16 @@ async function fetchYahooSeries(assetId) {
 
 async function fetchFredCopperSeries() {
   const csv = await fetchText(FRED_COPPER_CSV_URL, { cf: { cacheTtl: 86400, cacheEverything: true } });
-  const [header, ...rows] = csv.replace(/^\uFEFF/, "").trim().split(/\r?\n/);
+  const [header, ...rows] = csv
+    .replace(/^\uFEFF/, "")
+    .trim()
+    .split(/\r?\n/);
   if (!/^observation_date,PCOPPUSDM$/i.test(String(header || "").trim()))
     throw new Error("provider-history-invalid-response");
   const points = rows.flatMap((row) => {
     const [date, rawValue] = row.split(",");
     const usdPerMetricTon = Number(rawValue);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date || "") || !Number.isFinite(usdPerMetricTon) || usdPerMetricTon <= 0)
-      return [];
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date || "") || !Number.isFinite(usdPerMetricTon) || usdPerMetricTon <= 0) return [];
     return [
       {
         date,
@@ -335,16 +333,13 @@ function convertMonthlyUsdHistoryToToman(usdPoints, dollarPoints) {
 function requestedDayBounds(request = {}, defaultStartDate = "2017-01-01") {
   const today = Math.floor(Date.now() / DAY_MS) * DAY_MS;
   const rangeDays = HISTORY_RANGE_DAYS[request.range || "all"];
-  const endMs = request.end
-    ? new Date(`${request.end}T23:59:59.999Z`).getTime()
-    : today + DAY_MS - 1;
+  const endMs = request.end ? new Date(`${request.end}T23:59:59.999Z`).getTime() : today + DAY_MS - 1;
   const startMs = request.start
     ? new Date(`${request.start}T00:00:00.000Z`).getTime()
     : rangeDays === null
       ? new Date(`${defaultStartDate}T00:00:00.000Z`).getTime()
       : Math.floor(endMs / DAY_MS) * DAY_MS - Math.max(0, rangeDays - 1) * DAY_MS;
-  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs > endMs)
-    throw new Error("invalid-history-range");
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs > endMs) throw new Error("invalid-history-range");
   return { startMs, endMs };
 }
 
@@ -396,7 +391,7 @@ async function fetchBinanceCryptoSeries(assetId, request = {}) {
   const maxChunks = 12;
   if (endMs - startMs > maxChunks * chunkMs) startMs = endMs - maxChunks * chunkMs;
   const chunks = [];
-  for (let chunkStart = startMs; chunkStart <= endMs; ) {
+  for (let chunkStart = startMs; chunkStart <= endMs;) {
     const chunkEnd = Math.min(endMs, chunkStart + chunkMs - 1);
     chunks.push({ start: chunkStart, end: chunkEnd });
     chunkStart = chunkEnd + 1;
@@ -437,7 +432,7 @@ async function fetchCoinbaseCryptoSeries(assetId, request = {}) {
   const maxChunks = 16;
   const startMs = Math.max(bounds.startMs, endMs - maxChunks * chunkDays * DAY_MS);
   const chunks = [];
-  for (let chunkStart = startMs; chunkStart <= endMs; ) {
+  for (let chunkStart = startMs; chunkStart <= endMs;) {
     const chunkEnd = Math.min(endMs, chunkStart + chunkDays * DAY_MS - 1);
     chunks.push({ start: chunkStart, end: chunkEnd });
     chunkStart = chunkEnd + 1;
@@ -553,13 +548,8 @@ async function fetchNobitexCryptoSeries(assetId, range, start, end) {
     : rangeDays === null
       ? 0
       : today - rangeDays * 24 * 60 * 60;
-  const to = end
-    ? Math.floor(new Date(`${end}T23:59:59.999Z`).getTime() / 1000)
-    : today + 24 * 60 * 60 - 1;
-  const pageLimit = Math.min(
-    MAX_NOBITEX_HISTORY_PAGES,
-    Math.max(1, Math.ceil((to - from) / (500 * 24 * 60 * 60))),
-  );
+  const to = end ? Math.floor(new Date(`${end}T23:59:59.999Z`).getTime() / 1000) : today + 24 * 60 * 60 - 1;
+  const pageLimit = Math.min(MAX_NOBITEX_HISTORY_PAGES, Math.max(1, Math.ceil((to - from) / (500 * 24 * 60 * 60))));
   const pages = await Promise.all(
     Array.from({ length: pageLimit }, (_, index) => index + 1).map(async (page) => {
       const url = new URL(NOBITEX_HISTORY_BASE);
@@ -730,11 +720,11 @@ async function loadRawSeries(assetId, apiKey, userSuppliedKey, env, request = {}
     try {
       return await fetchTgjuSeries(assetId);
     } catch (tgjuError) {
-      if (!["gold", "silver"].includes(assetId)) throw new Error("provider-unavailable");
+      if (!["gold", "silver"].includes(assetId)) throw new Error("provider-unavailable", { cause: tgjuError });
       try {
         return await fetchAuxiliaryMetalSeries(assetId);
       } catch (chartGoldError) {
-        if (!env?.GOLD_API_KEY) throw chartGoldError || tgjuError;
+        if (!env?.GOLD_API_KEY) throw new Error("provider-unavailable", { cause: chartGoldError });
         return fetchGoldApiHistorySeries(assetId, env, request);
       }
     }
@@ -763,8 +753,7 @@ async function loadRawSeries(assetId, apiKey, userSuppliedKey, env, request = {}
       }
     }
     if (assetId === "copper") return fetchFredCopperSeries();
-    if (env?.GOLD_API_KEY && GOLD_API_HISTORY_ASSETS[assetId])
-      return fetchGoldApiHistorySeries(assetId, env, request);
+    if (env?.GOLD_API_KEY && GOLD_API_HISTORY_ASSETS[assetId]) return fetchGoldApiHistorySeries(assetId, env, request);
     throw new Error("yahoo-license-not-confirmed");
   }
   if (NOBITEX_HISTORY_SYMBOLS[assetId]) {
@@ -776,8 +765,7 @@ async function loadRawSeries(assetId, apiKey, userSuppliedKey, env, request = {}
   }
   if (COINGECKO_IDS[assetId]) {
     if (apiKey) return fetchCryptoSeries(assetId, apiKey, userSuppliedKey, env);
-    if (GOLD_API_HISTORY_ASSETS[assetId] && env?.GOLD_API_KEY)
-      return fetchGoldApiHistorySeries(assetId, env, request);
+    if (GOLD_API_HISTORY_ASSETS[assetId] && env?.GOLD_API_KEY) return fetchGoldApiHistorySeries(assetId, env, request);
   }
   throw new Error("history-unavailable");
 }
@@ -816,7 +804,9 @@ export async function onRequestGet(context = {}) {
   });
 
   const dollarPoints = normalizeObservedHistory(rawSeries.dollar?.points || [], rawSeries.dollar?.source || "TGJU");
-  const unavailableCryptoAssets = rawAssets.filter((assetId) => NOBITEX_HISTORY_SYMBOLS[assetId] && !rawSeries[assetId]);
+  const unavailableCryptoAssets = rawAssets.filter(
+    (assetId) => NOBITEX_HISTORY_SYMBOLS[assetId] && !rawSeries[assetId],
+  );
   await Promise.all(
     unavailableCryptoAssets.map(async (assetId) => {
       try {

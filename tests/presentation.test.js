@@ -9,11 +9,12 @@ const app = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 function declarations(selector) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const expression = new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, "gu");
-  const match =
-    [...css.matchAll(expression)].find((candidate) => candidate[1].includes("--bg")) || css.match(expression);
-  assert.ok(match, `missing CSS selector ${selector}`);
+  const matches = [...css.matchAll(expression)];
+  assert.ok(matches.length, `missing CSS selector ${selector}`);
   return Object.fromEntries(
-    [...match[1].matchAll(/(--[\w-]+)\s*:\s*([^;]+);/gu)].map((entry) => [entry[1], entry[2].trim()]),
+    matches.flatMap((match) =>
+      [...match[1].matchAll(/(--[\w-]+)\s*:\s*([^;]+);/gu)].map((entry) => [entry[1], entry[2].trim()]),
+    ),
   );
 }
 
@@ -31,14 +32,14 @@ function contrast(foreground, background) {
   return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
 }
 
-test("light theme color tokens match the pre-RTL palette", () => {
+test("light theme color tokens match the reviewed palette", () => {
   const light = declarations(":root");
   const original = {
     "--bg": "#f5f8f7",
     "--surface": "rgba(255, 255, 255, 0.94)",
     "--surface-muted": "#f9fbfc",
     "--ink": "#102331",
-    "--muted": "#667785",
+    "--muted": "#5c6d79",
     "--line": "#e1e9e9",
     "--primary": "#126b62",
     "--primary-dark": "#0d514b",
@@ -48,8 +49,32 @@ test("light theme color tokens match the pre-RTL palette", () => {
     "--silver": "#8997a0",
     "--danger": "#a04a45",
     "--shadow": "0 18px 48px rgba(21, 48, 61, 0.07)",
+    "--chart-label": "#5c6d79",
   };
   for (const [token, value] of Object.entries(original)) assert.equal(light[token], value, token);
+});
+
+test("muted and chart labels meet AA contrast on light and dark theme surfaces", () => {
+  const light = declarations(":root");
+  const dark = declarations('[data-theme="dark"]');
+  const lightBackgrounds = [light["--bg"], "#ffffff", light["--surface-muted"], light["--primary-soft"]];
+  const darkBackgrounds = [
+    dark["--bg"],
+    dark["--surface"],
+    dark["--surface-muted"],
+    dark["--surface-raised"],
+    dark["--surface-hover"],
+    dark["--warning-surface"],
+    dark["--danger-surface"],
+  ];
+  for (const foreground of [light["--muted"], light["--chart-label"]]) {
+    for (const background of lightBackgrounds)
+      assert.ok(contrast(foreground, background) >= 4.5, `${foreground} on ${background} is below WCAG AA`);
+  }
+  for (const foreground of [dark["--muted"], dark["--chart-label"]]) {
+    for (const background of darkBackgrounds)
+      assert.ok(contrast(foreground, background) >= 4.5, `${foreground} on ${background} is below WCAG AA`);
+  }
 });
 
 test("dark theme text and status colors meet AA contrast on dark surfaces", () => {

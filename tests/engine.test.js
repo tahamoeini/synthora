@@ -180,12 +180,11 @@ test("new contributions close allocation gaps without selling", () => {
 });
 
 test("contribution weights, target weights, and current portfolio deviation use separate denominators", () => {
-  const plan = contributionRebalance(
-    { fixed: 0, gold: 100, silver: 0 },
-    { fixed: 74, gold: 14, silver: 12 },
-    100,
-    ["fixed", "gold", "silver"],
-  );
+  const plan = contributionRebalance({ fixed: 0, gold: 100, silver: 0 }, { fixed: 74, gold: 14, silver: 12 }, 100, [
+    "fixed",
+    "gold",
+    "silver",
+  ]);
   assert.equal(plan.currentWeights.gold, 100);
   assert.ok(Math.abs(plan.targetWeights.gold - 14) < 1e-10);
   assert.equal(plan.deviationPercentagePoints.gold, 86);

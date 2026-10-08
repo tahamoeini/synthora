@@ -43,9 +43,13 @@ function defaultValueLabel(value) {
 let lineChartSequence = 0;
 
 function interactivePointIndexes(points, maximum = 60) {
-  const indexes = points.map((point, index) => (finite(point.value) === null ? -1 : index)).filter((index) => index >= 0);
+  const indexes = points
+    .map((point, index) => (finite(point.value) === null ? -1 : index))
+    .filter((index) => index >= 0);
   if (indexes.length <= maximum) return new Set(indexes);
-  return new Set(Array.from({ length: maximum }, (_, index) => indexes[Math.round((index * (indexes.length - 1)) / (maximum - 1))]));
+  return new Set(
+    Array.from({ length: maximum }, (_, index) => indexes[Math.round((index * (indexes.length - 1)) / (maximum - 1))]),
+  );
 }
 
 export function clampTooltipCenter(center, tooltipWidth, chartWidth, padding = 8) {
@@ -204,23 +208,27 @@ export function lineChartMarkup({
       ? `<div class="chart-legend">${normalized.map((item) => `<span><i style="--legend-color:${escapeHTML(item.color || "#126b62")}"></i>${escapeHTML(item.name || "")}</span>`).join("")}</div>`
       : "";
   const crosshair = `<line class="chart-crosshair" data-axis="x" x1="0" y1="${padding.top}" x2="0" y2="${height - padding.bottom}" hidden/><line class="chart-crosshair" data-axis="y" x1="${padding.left}" y1="0" x2="${width - padding.right}" y2="0" hidden/>`;
-  const validSeries = normalized.map((item) => {
-    const points = item.points.filter((point) => finite(point.value) !== null);
-    const first = points[0];
-    const last = points.at(-1);
-    const minimum = points.reduce((best, point) => (point.value < best.value ? point : best), points[0]);
-    const maximum = points.reduce((best, point) => (point.value > best.value ? point : best), points[0]);
-    const pointLabel = (point) => point.label || point.date || "";
-    return `<li>${escapeHTML(item.name || ariaLabel)} · ${escapeHTML(String(points.length))} ${escapeHTML(summaryLabels.observations)} · ${escapeHTML(summaryLabels.first)}: ${escapeHTML(pointLabel(first))} ${escapeHTML(valueLabel(first.value))} · ${escapeHTML(summaryLabels.last)}: ${escapeHTML(pointLabel(last))} ${escapeHTML(valueLabel(last.value))} · ${escapeHTML(summaryLabels.minimum)}: ${escapeHTML(valueLabel(minimum.value))} · ${escapeHTML(summaryLabels.maximum)}: ${escapeHTML(valueLabel(maximum.value))}</li>`;
-  }).join("");
+  const validSeries = normalized
+    .map((item) => {
+      const points = item.points.filter((point) => finite(point.value) !== null);
+      const first = points[0];
+      const last = points.at(-1);
+      const minimum = points.reduce((best, point) => (point.value < best.value ? point : best), points[0]);
+      const maximum = points.reduce((best, point) => (point.value > best.value ? point : best), points[0]);
+      const pointLabel = (point) => point.label || point.date || "";
+      return `<li>${escapeHTML(item.name || ariaLabel)} · ${escapeHTML(String(points.length))} ${escapeHTML(summaryLabels.observations)} · ${escapeHTML(summaryLabels.first)}: ${escapeHTML(pointLabel(first))} ${escapeHTML(valueLabel(first.value))} · ${escapeHTML(summaryLabels.last)}: ${escapeHTML(pointLabel(last))} ${escapeHTML(valueLabel(last.value))} · ${escapeHTML(summaryLabels.minimum)}: ${escapeHTML(valueLabel(minimum.value))} · ${escapeHTML(summaryLabels.maximum)}: ${escapeHTML(valueLabel(maximum.value))}</li>`;
+    })
+    .join("");
   const rowCount = Math.max(...normalized.map((item) => item.points.length));
   const tableRows = Array.from({ length: rowCount }, (_, index) => {
     const rowLabel = normalized.map((item) => item.points[index]).find((point) => point && (point.label || point.date));
     const label = rowLabel?.label || rowLabel?.date || String(index + 1);
-    const cells = normalized.map((item) => {
-      const value = finite(item.points[index]?.value);
-      return `<td>${escapeHTML(value === null ? unavailableLabel : valueLabel(value))}</td>`;
-    }).join("");
+    const cells = normalized
+      .map((item) => {
+        const value = finite(item.points[index]?.value);
+        return `<td>${escapeHTML(value === null ? unavailableLabel : valueLabel(value))}</td>`;
+      })
+      .join("");
     return `<tr><th scope="row">${escapeHTML(label)}</th>${cells}</tr>`;
   }).join("");
   const table = `<details class="chart-data-details"><summary>${escapeHTML(tableLabel)}</summary><div class="chart-data-table-wrap"><table><caption>${escapeHTML(summaryLabels.tableCaption)}: ${escapeHTML(ariaLabel)}</caption><thead><tr><th scope="col">${escapeHTML(summaryLabels.date)}</th>${normalized.map((item) => `<th scope="col">${escapeHTML(item.name || ariaLabel)}</th>`).join("")}</tr></thead><tbody>${tableRows}</tbody></table></div></details>`;
