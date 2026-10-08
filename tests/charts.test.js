@@ -88,6 +88,35 @@ test("dated line charts position dots by observation dates and expose date value
   assert.match(markup, /aria-keyshortcuts="ArrowLeft ArrowRight Home End"/);
 });
 
+test("long line charts summarize observations, cap interactive points, and offer a complete data table", () => {
+  const points = Array.from({ length: 300 }, (_, index) => ({
+    date: new Date(Date.UTC(2000, index, 1)).toISOString(),
+    label: `Period ${index + 1}`,
+    value: index,
+  }));
+  const markup = lineChartMarkup({
+    ariaLabel: "Portfolio history",
+    tableLabel: "Show chart data table",
+    summaryLabels: {
+      date: "Date",
+      observations: "observations",
+      first: "First",
+      last: "Last",
+      minimum: "Minimum",
+      maximum: "Maximum",
+      tableCaption: "Chart data",
+    },
+    series: [{ name: "Portfolio", points }],
+  });
+  assert.match(markup, /aria-describedby="line-chart-summary-/);
+  assert.match(markup, /First: Period 1 0/);
+  assert.match(markup, /Last: Period 300 299/);
+  assert.equal([...markup.matchAll(/class="chart-dot"/g)].length, 60);
+  assert.match(markup, /<details class="chart-data-details">/);
+  assert.match(markup, /<summary>Show chart data table<\/summary>/);
+  assert.match(markup, /Period 300/);
+});
+
 test("bar charts expose keyboard-focusable values and preserve a visible zero baseline", () => {
   const markup = barChartMarkup({
     ariaLabel: "Monthly contributions",

@@ -9,13 +9,22 @@ import {
   clamp,
   contributionRebalance,
   normalizeAllocation,
-  portfolioFromHistory,
   recommendAllocation,
 } from "./src/engine.js";
-import { createHistoryExport, mergeHistory, normalizeHistoryEntries, parseHistoryExport } from "./src/history.js";
+import {
+  createHistoryExport,
+  createPersonalBackup,
+  createPlanHistoryRecord,
+  mergeHistory,
+  normalizeHistoryEntries,
+  parseHistoryExport,
+  parsePersonalBackup,
+} from "./src/history.js";
 import { writeJsonBatch } from "./src/ui/atomic-storage.js";
 import {
   PORTFOLIO_ASSETS,
+  REPORTING_CALENDAR,
+  REPORTING_TIME_ZONE,
   activePortfolioVersion,
   appendTransactions,
   assetIds,
@@ -77,6 +86,24 @@ const HISTORY_LIMIT = 60;
 const MARKET_REQUEST_TIMEOUT_MS = 12000;
 const CURRENCY_MIGRATION_KEY = "invest-consult-currency-toman-v1";
 const UI_PREFERENCES_KEY = "synthora-ui-preferences-v1";
+const LAST_BACKUP_REQUEST_KEY = "synthora-last-backup-request-v1";
+const LAST_MANUAL_SYNC_KEY = "synthora-last-manual-sync-v1";
+
+function readStatusTimestamp(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStatusTimestamp(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Status metadata is optional and must not change the result of a completed action.
+  }
+}
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -152,19 +179,44 @@ let syncRevision = null;
 let historyComparisonMode = "return";
 let historyComparisonCurrency = "TOMAN";
 let historyCustomBounds = null;
+let assetDrawerOpener = null;
 
 const fallbackCopy = {
   status: {
     loading: "در حال خواندن داده بازار",
-    connected: "داده زنده وصل است",
+    connected: "داده بازار دریافت شد",
     cached: "در حال استفاده از داده ذخیره‌شده",
-    unavailable: "داده زنده در دسترس نیست",
+    unavailable: "داده بازار در دسترس نیست",
   },
   errors: { salary: "یک حقوق معتبر وارد کن." },
 };
 
 function text(key, fallback = "") {
   return key.split(".").reduce((value, part) => value && value[part], copy) ?? fallback;
+}
+
+function validateNumericFields(form, { report = false } = {}) {
+  if (!form) return true;
+  let firstInvalid = null;
+  form.querySelectorAll('input[type="number"]').forEach((input) => {
+    input.setCustomValidity("");
+    const validity = input.validity;
+    if (validity.valid) return;
+    const messageKey = validity.valueMissing
+      ? "errors.numericRequired"
+      : validity.badInput
+        ? "errors.numericInvalid"
+        : "errors.numericRange";
+    input.setCustomValidity(text(messageKey, "Enter a valid value within the allowed range."));
+    firstInvalid ||= input;
+  });
+  if (firstInvalid && report) firstInvalid.reportValidity();
+  return !firstInvalid;
+}
+
+function percentInputValue(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? String(Number(numeric.toPrecision(15))) : "";
 }
 
 const originalTextByNode = new WeakMap();
@@ -900,6 +952,30 @@ function currentSyncSnapshot() {
   return snapshot;
 }
 
+function renderBackupStatus() {
+  const status = $("#settings-data-status");
+  if (!status) return;
+  const profile = readJson(PROFILE_KEY, null);
+  const planCount = readHistory().length;
+  const transactionCount = activePortfolioVersion(readPortfolio()).transactions.length;
+  const hasPersonalData =
+    Boolean(profile && typeof profile === "object" && Object.keys(profile).length) || planCount > 0 || transactionCount > 0;
+  const counts = [
+    `${formatIRR(planCount)} ${text("backup.planCount")}`,
+    `${formatIRR(transactionCount)} ${text("backup.transactionCount")}`,
+    profile && typeof profile === "object" && Object.keys(profile).length ? text("backup.profilePresent") : text("backup.profileAbsent"),
+  ].join(` ${text("history.separator")} `);
+  const lastExport = readStatusTimestamp(LAST_BACKUP_REQUEST_KEY);
+  const lastSync = readStatusTimestamp(LAST_MANUAL_SYNC_KEY);
+  const exportState = lastExport
+    ? `${text("backup.exportRequestedAt")} ${formatDateTime(lastExport)} · ${text("backup.browserSaveUnknown")}`
+    : text("backup.noExportYet");
+  const syncState = lastSync
+    ? `${text("backup.manualSyncAt")} ${formatDateTime(lastSync)}`
+    : text("backup.noManualSyncYet");
+  status.textContent = `${hasPersonalData ? text("backup.localPresent") : text("backup.localEmpty")} ${counts} · ${exportState} · ${syncState}`;
+}
+
 function validateSyncRecords(records) {
   const writes = [];
   if (Object.hasOwn(records, "profile")) {
@@ -1064,7 +1140,9 @@ async function uploadLocalSyncSnapshot() {
     }
     if (!response.ok) throw Object.assign(new Error("sync.requestFailed"), { data });
     syncRevision = Number(data.revision);
+    writeStatusTimestamp(LAST_MANUAL_SYNC_KEY, new Date().toISOString());
     setSyncStatus(text("sync.uploaded"), "success");
+    renderBackupStatus();
   } catch (error) {
     setSyncStatus(syncErrorMessage(error), "warning");
   }
@@ -1102,6 +1180,8 @@ async function restoreRemoteSyncSnapshot() {
     renderPortfolio();
     renderDashboard();
     renderMarket(liveMarket, lastKnownMarket);
+    writeStatusTimestamp(LAST_MANUAL_SYNC_KEY, new Date().toISOString());
+    renderBackupStatus();
     setSyncStatus(text("sync.restored"), "success");
   } catch (error) {
     setSyncStatus(
@@ -1171,6 +1251,9 @@ function readHistory() {
   try {
     if (localStorage.getItem(HISTORY_KEY) !== null && !Array.isArray(current)) storageWarning = true;
     if (localStorage.getItem("investment-plan-history-v3") !== null && !Array.isArray(old)) storageWarning = true;
+    [...(Array.isArray(current) ? current : []), ...(Array.isArray(old) ? old : [])].forEach((entry) => {
+      if (!normalizeHistoryEntries([entry], 1).length) storageWarning = true;
+    });
   } catch {
     storageWarning = true;
   }
@@ -1181,11 +1264,7 @@ function readPortfolio() {
   const raw = readJson(PORTFOLIO_KEY, null);
   try {
     const exists = localStorage.getItem(PORTFOLIO_KEY) !== null;
-    if (
-      exists &&
-      (!raw || typeof raw !== "object" || raw.schema !== "invest-consult-portfolio" || !Array.isArray(raw.versions))
-    )
-      storageWarning = true;
+    if (exists && !validateImportedPortfolio(raw).valid) storageWarning = true;
   } catch {
     storageWarning = true;
   }
@@ -1199,6 +1278,8 @@ function writePortfolio(portfolio) {
 function emergencyFundSnapshot(expenses = numberFromInput($("#essential-monthly-expenses")?.value)) {
   if (!(expenses > 0)) return { months: null, status: legacyEmergencyFund };
   const portfolio = calculatePortfolio(readPortfolio(), liveMarket || {});
+  if (portfolio.liquidTotal === null || portfolio.liquidTotal === undefined)
+    return { months: null, status: legacyEmergencyFund };
   const months = portfolio.liquidTotal / expenses;
   return { months, status: months >= 6 ? "complete" : months >= 1 ? "partial" : "none" };
 }
@@ -1277,6 +1358,7 @@ function persistProfile() {
     contributionRate: inputs.contributionRate,
   };
   writeJson(PROFILE_KEY, profile);
+  renderBackupStatus();
 }
 
 function restoreProfile() {
@@ -1367,15 +1449,20 @@ function marketSnapshot(market) {
   return Object.keys(snapshot.assets).length || Object.keys(snapshot.funds).length ? snapshot : null;
 }
 
-function marketValueUnit(item, currency = "TOMAN") {
-  if (item?.unit === "point") return "نقطه";
-  if (item?.unit === "gram") return `${currencyName(currency)}/گرم`;
-  if (item?.unit === "coin") return `${currencyName(currency)}/واحد`;
+function marketValueUnit(item, currency = "TOMAN", assetId = null) {
+  if (item?.unit === "point") return text("portfolio.units.bourseIndex", "points");
+  const instrumentUnit = INSTRUMENT_REGISTRY[assetId]?.unit;
+  if (item?.unit === "gram" || instrumentUnit === "gram")
+    return `${currencyName(currency)}/${text(`portfolio.units.${assetId === "silver" ? "silver" : "gold"}`, "g")}`;
+  if (item?.unit === "coin" || instrumentUnit === "coin")
+    return `${currencyName(currency)}/${text(`portfolio.units.${assetId}`, assetId || "coin")}`;
+  if (["dollar", "currency"].includes(assetId) || instrumentUnit === "TOMAN")
+    return `${currencyName(currency)}/${text("portfolio.units.currency", "USD")}`;
   return currencyName(currency);
 }
 
-function formatMarketPrice(price, item) {
-  if (item?.unit === "point") return `${formatIRR(price)} ${marketValueUnit(item)}`;
+function formatMarketPrice(price, item, assetId = null) {
+  if (item?.unit === "point") return `${formatIRR(price)} ${marketValueUnit(item, "TOMAN", assetId)}`;
   const currency = preferredCurrency(uiPreferences);
   const converted = displayCurrencyValue(price, currency, activeFxQuotes());
   const displayCurrency = converted ? currency : "TOMAN";
@@ -1384,7 +1471,7 @@ function formatMarketPrice(price, item) {
         maximumFractionDigits: displayCurrency === "TOMAN" ? 0 : converted.amount < 100 ? 2 : 0,
       }).format(converted.amount)
     : formatIRR(price);
-  return `${amount} ${marketValueUnit(item, displayCurrency)}`;
+  return `${amount} ${marketValueUnit(item, displayCurrency, assetId)}`;
 }
 
 function marketUnavailableMessage(item, diagnostics) {
@@ -1424,15 +1511,15 @@ function lastKnownPriceMarkup(assetId, data, cachedMarket, currentItem) {
         .map((source) => ` · ${marketSourceLabelMarkup(source)}`)
         .join("")
     : "";
-  return `<small class="market-last-known"><strong>${escapeHTML(text("market.lastKnown", "آخرین مقدار ثبت‌شده"))}:</strong> <bdi dir="auto">${escapeHTML(formatMarketPrice(quote.price, { unit: quote.unit || currentItem?.unit || INSTRUMENT_REGISTRY[assetId]?.unit }))}</bdi> · ${escapeHTML(text("market.lastKnownObserved", "مشاهده"))} ${escapeHTML(formatDateTime(quote.observedAt))} · ${escapeHTML(freshnessLabel(quote.observedAt))}${attribution}</small>`;
+  return `<small class="market-last-known"><strong>${escapeHTML(text("market.lastKnown", "آخرین مقدار ثبت‌شده"))}:</strong> <bdi dir="auto">${escapeHTML(formatMarketPrice(quote.price, { unit: quote.unit || currentItem?.unit || INSTRUMENT_REGISTRY[assetId]?.unit }, assetId))}</bdi> · ${escapeHTML(text("market.lastKnownObserved", "مشاهده"))} ${escapeHTML(formatDateTime(quote.observedAt))} · ${escapeHTML(freshnessLabel(quote.observedAt))}${attribution}</small>`;
 }
 
-function marketConflictSourcesMarkup(item) {
+function marketConflictSourcesMarkup(item, assetId = null) {
   if (item?.status !== "conflicted" || !Array.isArray(item.sourceValues) || !item.sourceValues.length) return "";
   const values = item.sourceValues
     .map((source) => {
       const observed = source.observedAt ? formatDateTime(source.observedAt) : "زمان مشاهده نامشخص";
-      return `<div class="market-conflict-source"><strong>${marketSourceLabelMarkup(source.source)}</strong><b><bdi dir="auto">${escapeHTML(formatMarketPrice(source.price, item))}</bdi></b><small>زمان مشاهده: ${escapeHTML(observed)}</small></div>`;
+      return `<div class="market-conflict-source"><strong>${marketSourceLabelMarkup(source.source)}</strong><b><bdi dir="auto">${escapeHTML(formatMarketPrice(source.price, item, assetId))}</bdi></b><small>زمان مشاهده: ${escapeHTML(observed)}</small></div>`;
     })
     .join("");
   return `<div class="market-conflict-values" aria-label="مقادیر منابع متعارض">${values}</div>`;
@@ -1458,7 +1545,7 @@ function renderMarket(data, cachedMarket = lastKnownMarket) {
         const detail = marketUnavailableMessage(item, assetDiagnostics);
         const coverage = marketSourceCoverageLabel(item, assetDiagnostics);
         const lastKnown = lastKnownPriceMarkup(key, currentMarket, cachedMarket, item);
-        const conflictValues = marketConflictSourcesMarkup(item);
+        const conflictValues = marketConflictSourcesMarkup(item, key);
         return `<div class="market-row market-row-unavailable"><div><span class="asset-dot asset-${key === "dollar" ? "currency" : key}"></span><strong>${escapeHTML(label.title)}</strong><small>${escapeHTML(label.detail)}</small></div><div class="market-value"><strong>—</strong><small>${escapeHTML(detail)} · ${escapeHTML(coverage)}</small>${conflictValues}${lastKnown}</div></div>`;
       }
       const change =
@@ -1473,7 +1560,7 @@ function renderMarket(data, cachedMarket = lastKnownMarket) {
         : text(`market.quality.${item.status || "healthy"}`);
       const basis = text(`market.quoteType.${item.quoteType || "direct"}`);
       const coverage = marketSourceCoverageLabel(item, currentMarket.diagnostics?.assets?.[key]);
-      return `<div class="market-row"><div><span class="asset-dot asset-${key === "dollar" ? "currency" : key}"></span><strong>${escapeHTML(label.title)}</strong><small>${escapeHTML(label.detail)} · ${escapeHTML(basis)}</small></div><div class="market-value"><strong><bdi dir="auto">${escapeHTML(formatMarketPrice(item.price, item))}</bdi></strong><span class="${changeClass}"><bdi dir="auto">${changeLabel}</bdi></span><small>${escapeHTML(quality)} · ${escapeHTML(coverage)}</small><small>${escapeHTML(timeLabels)}</small>${marketConsensusNote(item)}${item.reconciliationNote ? `<small class="data-note-warning">${escapeHTML(item.reconciliationNote)}</small>` : ""}${marketSourceValuesMarkup(item)}</div></div>`;
+      return `<div class="market-row"><div><span class="asset-dot asset-${key === "dollar" ? "currency" : key}"></span><strong>${escapeHTML(label.title)}</strong><small>${escapeHTML(label.detail)} · ${escapeHTML(basis)}</small></div><div class="market-value"><strong><bdi dir="auto">${escapeHTML(formatMarketPrice(item.price, item, key))}</bdi></strong><span class="${changeClass}"><bdi dir="auto">${changeLabel}</bdi></span><small>${escapeHTML(quality)} · ${escapeHTML(coverage)}</small><small>${escapeHTML(timeLabels)}</small>${marketConsensusNote(item)}${item.reconciliationNote ? `<small class="data-note-warning">${escapeHTML(item.reconciliationNote)}</small>` : ""}${marketSourceValuesMarkup(item, key)}</div></div>`;
     })
     .join("");
   const fixed = currentMarket.funds && currentMarket.funds.fixedIncome;
@@ -1523,7 +1610,9 @@ function readDashboardPortfolio() {
 }
 
 function dashboardCurrency(value) {
-  return Number.isFinite(Number(value)) ? formatDisplayMoney(value) : "—";
+  return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value))
+    ? formatDisplayMoney(value)
+    : "—";
 }
 
 function setDashboardMetric(valueId, noteId, value, note, state = "ready") {
@@ -1578,7 +1667,7 @@ function confidenceLabel(item) {
   return { label: "در دسترس نیست", className: "confidence-none" };
 }
 
-function marketSourceValuesMarkup(item) {
+function marketSourceValuesMarkup(item, assetId = null) {
   const values = Array.isArray(item?.sourceValues) ? item.sourceValues : [];
   if (!values.length) return "";
   const accepted = new Set(Array.isArray(item?.sources) ? item.sources : []);
@@ -1589,7 +1678,7 @@ function marketSourceValuesMarkup(item) {
         item?.status === "conflicted" ||
         source.accepted === false ||
         (accepted.size > 0 && !accepted.has(source.source));
-      const quote = `${formatMarketPrice(source.price, item)} · ${source.source}`;
+      const quote = `${formatMarketPrice(source.price, item, assetId)} · ${source.source}`;
       const observed = source.observedAt ? ` · ${formatDateTime(source.observedAt)}` : "";
       const exclusion =
         source.accepted === false
@@ -1599,22 +1688,32 @@ function marketSourceValuesMarkup(item) {
               ? " · پرت؛ در برآورد لحاظ نشد"
               : " · در برآورد لحاظ نشد"
           : "";
-      return `<span class="${conflict ? "is-outlier" : ""}" title="${escapeHTML(quote + observed + exclusion)}"><bdi dir="auto">${escapeHTML(formatMarketPrice(source.price, item))}</bdi> · ${marketSourceLabelMarkup(source.source)}${escapeHTML(exclusion)}</span>`;
+      return `<span class="${conflict ? "is-outlier" : ""}" title="${escapeHTML(quote + observed + exclusion)}"><bdi dir="auto">${escapeHTML(formatMarketPrice(source.price, item, assetId))}</bdi> · ${marketSourceLabelMarkup(source.source)}${escapeHTML(exclusion)}</span>`;
     })
     .join("")}</div>`;
 }
 
 function marketConsensusNote(item) {
-  if (!item?.consensusDisagreement && !(Number(item?.unknownObservationCount) > 0)) return "";
+  if (
+    !item?.consensusDisagreement &&
+    !(Number(item?.unknownObservationCount) > 0) &&
+    !(Number(item?.spreadPct) > 0)
+  )
+    return "";
   const sourceCount = Number(item.sourceCount) || 0;
   const spread = Number(item.spreadPct);
+  const acceptedSpread = Number(item.acceptedSpreadPct);
+  const observationCount = Array.isArray(item.sourceValues) ? item.sourceValues.length : sourceCount;
   const notes = [];
-  if (item.consensusDisagreement) {
-    const spreadLabel = Number.isFinite(spread)
-      ? `اختلاف حدود ${formatPercent(spread / 100, 2)} بین منابع`
-      : "اختلاف بین منابع";
-    notes.push(`${spreadLabel}؛ میانه‌ی ${formatIRR(sourceCount)} منبع به‌عنوان برآورد استفاده شده است.`);
-  }
+  if (item.consensusDisagreement) notes.push(text("market.consensusDisagreement"));
+  if (Number.isFinite(spread))
+    notes.push(
+      `${text("market.dispersionAll")}: ${formatPercent(spread / 100, 2)} ${text("market.observationsCount", "(%{count} observations)").replaceAll("{count}", formatIRR(observationCount))}`,
+    );
+  if (Number.isFinite(acceptedSpread))
+    notes.push(`${text("market.dispersionAccepted")}: ${formatPercent(acceptedSpread / 100, 2)}`);
+  if (item.consensusDisagreement)
+    notes.push(`${text("market.medianEstimate")} ${formatIRR(sourceCount)} ${text("market.acceptedSources")}`);
   if (Number(item.unknownObservationCount) > 0)
     notes.push(`زمان مشاهده‌ی ${formatIRR(item.unknownObservationCount)} منبع مشخص نیست.`);
   return `<small class="data-note-warning">${escapeHTML(notes.join(" "))}</small>`;
@@ -1646,6 +1745,22 @@ function filterDashboardRange(points) {
   return prior ? [prior, ...filtered] : filtered;
 }
 
+function chartA11yProps() {
+  return {
+    tableLabel: text("charts.dataTable"),
+    unavailableLabel: text("charts.unavailable"),
+    summaryLabels: {
+      date: text("charts.date"),
+      observations: text("charts.observations"),
+      first: text("charts.first"),
+      last: text("charts.last"),
+      minimum: text("charts.minimum"),
+      maximum: text("charts.maximum"),
+      tableCaption: text("charts.tableCaption"),
+    },
+  };
+}
+
 function renderDashboardPerformance() {
   const container = $("#dashboard-performance-chart");
   if (!container) return;
@@ -1658,6 +1773,7 @@ function renderDashboardPerformance() {
   }
   const points = filterDashboardRange(dashboardPerformancePoints(portfolio, result));
   container.innerHTML = lineChartMarkup({
+    ...chartA11yProps(),
     series: [
       {
         name: text("dashboard.investedSeries", "سرمایه خالص"),
@@ -1895,7 +2011,7 @@ function renderMarketSnapshot(data, cachedMarket = lastKnownMarket) {
     if (!hasPrice) {
       const quality = marketUnavailableMessage(item, currentMarket.diagnostics?.assets?.[key]);
       const lastKnown = lastKnownPriceMarkup(key, currentMarket, cachedMarket, item);
-      const conflictValues = marketConflictSourcesMarkup(item);
+      const conflictValues = marketConflictSourcesMarkup(item, key);
       return `<article class="market-snapshot-item is-unavailable"><strong>${escapeHTML(label)}</strong><b>—</b><small>${escapeHTML(quality)}</small>${conflictValues}${lastKnown}</article>`;
     }
     const change =
@@ -1904,7 +2020,7 @@ function renderMarketSnapshot(data, cachedMarket = lastKnownMarket) {
     const changeLabel = Number.isFinite(change)
       ? `${change > 0 ? "+" : ""}${formatPercent(change)}`
       : text("market.noChange");
-    return `<article class="market-snapshot-item"><div><span class="asset-dot asset-${key === "dollar" ? "currency" : key}"></span><strong>${escapeHTML(label)}</strong></div><b>${escapeHTML(formatMarketPrice(item.price, item))}</b><span class="${changeClass}">${escapeHTML(changeLabel)}</span><small>${escapeHTML(confidenceLabel(item).label)}</small><small>${escapeHTML(marketTimeLabels(item, currentMarket.updatedAt))}</small>${marketConsensusNote(item)}${item.reconciliationNote ? `<small class="data-note-warning">${escapeHTML(item.reconciliationNote)}</small>` : ""}${marketSourceValuesMarkup(item)}</article>`;
+    return `<article class="market-snapshot-item"><div><span class="asset-dot asset-${key === "dollar" ? "currency" : key}"></span><strong>${escapeHTML(label)}</strong></div><b>${escapeHTML(formatMarketPrice(item.price, item, key))}</b><span class="${changeClass}">${escapeHTML(changeLabel)}</span><small>${escapeHTML(confidenceLabel(item).label)}</small><small>${escapeHTML(marketTimeLabels(item, currentMarket.updatedAt))}</small>${marketConsensusNote(item)}${item.reconciliationNote ? `<small class="data-note-warning">${escapeHTML(item.reconciliationNote)}</small>` : ""}${marketSourceValuesMarkup(item, key)}</article>`;
   });
   const fixed = currentMarket.funds?.fixedIncome;
   items.push(
@@ -2003,48 +2119,101 @@ function renderDashboard() {
   if (!onboarding || !summary) return;
   const plan = latestPlanSnapshot();
   const { portfolio, result, hasTransactions } = readDashboardPortfolio();
+  const hasSavedPlan = readHistory().length > 0;
   const complete = hasTransactions && result.missingPrices.length === 0;
   const marketLoading =
     hasTransactions && result.missingPrices.length > 0 && appStore.getState().marketStatus === "loading";
   const valuationState = !hasTransactions ? "empty" : marketLoading ? "loading" : complete ? "ready" : "unavailable";
-  const empty = !plan && !hasTransactions;
-  onboarding.classList.toggle("is-hidden", !empty);
+  const empty = !hasSavedPlan && !hasTransactions;
+  const planOnly = hasSavedPlan && !hasTransactions;
+  onboarding.classList.toggle("is-hidden", hasTransactions);
+  $("#dashboard-summary-grid")?.classList.toggle("is-hidden", empty);
+  $("#dashboard-main-grid")?.classList.toggle("is-hidden", !hasTransactions);
+  $("#dashboard-secondary-grid")?.classList.toggle("is-hidden", empty);
+  const onboardingTitle = $("#dashboard-onboarding-title");
+  const onboardingCopy = $("#dashboard-onboarding-copy");
+  const stateNote = $("#dashboard-state-note");
+  const dashboardState = empty
+    ? "new"
+    : planOnly
+      ? "planOnly"
+      : hasTransactions && result.missingPrices.length
+        ? "missingPrice"
+        : hasSavedPlan
+          ? "returning"
+          : "holdingsOnly";
+  if (stateNote) {
+    stateNote.textContent = text(`dashboard.state.${dashboardState}`);
+    stateNote.hidden = empty;
+  }
+  if (onboardingTitle)
+    onboardingTitle.textContent = text(planOnly ? "dashboard.planOnlyTitle" : "dashboard.onboardingTitle");
+  if (onboardingCopy)
+    onboardingCopy.textContent = text(planOnly ? "dashboard.planOnlyCopy" : "dashboard.onboardingCopy");
 
   setDashboardMetric(
     "dashboard-current-value",
     "dashboard-current-value-note",
     complete ? dashboardCurrency(result.currentValue) : "—",
     !hasTransactions
-      ? "هنوز دفتر پرتفوی ثبت نشده"
+      ? planOnly
+        ? text("dashboard.planOnlyValueNote")
+        : text("dashboard.onboardingValueNote")
       : marketLoading
         ? "در حال دریافت قیمت‌های بازار"
         : result.missingPrices.length
           ? "قیمت بعضی دارایی‌ها در دسترس نیست"
-          : `به‌روزشده ${freshnessLabel(liveMarket?.updatedAt)}`,
+          : result.quoteQualityStatus === "accepted"
+            ? `${text("market.updated") || "Latest reading"} ${freshnessLabel(liveMarket?.updatedAt)}`
+            : text(`portfolio.valuationQuality.${result.quoteQualityStatus}`, text("portfolio.estimatedValuation")),
     valuationState,
   );
+  const investmentValue = result.netInvestedStatus === "estimated" ? result.estimatedNetInvested : result.netInvested;
+  const investmentNote =
+    result.netInvestedStatus === "estimated"
+      ? text("portfolio.estimatedCostBasis")
+      : result.netInvestedStatus === "unavailable"
+        ? text("portfolio.costBasis.unknown")
+        : hasTransactions
+          ? !hasSavedPlan
+            ? text("dashboard.holdingsOnlyNote")
+            : `${formatIRR(result.transactions.length)} ${text("backup.transactionCount")}`
+          : "از دفتر تراکنش‌ها";
   setDashboardMetric(
     "dashboard-invested",
     "dashboard-invested-note",
-    hasTransactions ? dashboardCurrency(result.netInvested) : "—",
-    hasTransactions ? `${formatIRR(result.transactions.length)} رویداد در دفتر` : "از دفتر تراکنش‌ها",
-    hasTransactions ? "ready" : "empty",
+    hasTransactions ? dashboardCurrency(investmentValue) : "—",
+    investmentNote,
+    hasTransactions ? (result.netInvestedStatus === "unavailable" ? "unavailable" : "ready") : "empty",
   );
-  const pnlValue = complete ? `${result.profitLoss >= 0 ? "+" : ""}${dashboardCurrency(result.profitLoss)}` : "—";
+  const displayedProfitLoss = result.profitLoss ?? result.estimatedProfitLoss;
+  const pnlAvailable = complete && displayedProfitLoss !== null && displayedProfitLoss !== undefined;
+  const pnlValue = pnlAvailable
+    ? `${displayedProfitLoss >= 0 ? "+" : ""}${dashboardCurrency(displayedProfitLoss)}`
+    : "—";
+  const pnlNote =
+    pnlAvailable && result.performanceStatus === "estimated"
+      ? text("portfolio.estimatedProfitLoss")
+      : complete && result.performanceStatus === "unavailable"
+        ? text("portfolio.costBasis.unknown")
+        : complete
+          ? "ارزش فعلی منهای سرمایه خالص"
+          : marketLoading
+            ? "در حال دریافت قیمت‌های بازار"
+            : "وقتی ارزش‌گذاری کامل باشد";
   setDashboardMetric(
     "dashboard-profit-loss",
     "dashboard-profit-loss-note",
     pnlValue,
-    complete
-      ? "ارزش فعلی منهای سرمایه خالص"
-      : marketLoading
-        ? "در حال دریافت قیمت‌های بازار"
-        : "وقتی ارزش‌گذاری کامل باشد",
-    valuationState,
+    pnlNote,
+    pnlAvailable ? "ready" : valuationState,
   );
   const pnlEl = $("#dashboard-profit-loss");
-  if (complete) pnlEl.classList.add(result.profitLoss >= 0 ? "positive" : "negative");
-  const profitLossPercent = complete && result.netInvested > 0 ? (result.profitLoss / result.netInvested) * 100 : null;
+  if (pnlAvailable) pnlEl.classList.add(displayedProfitLoss >= 0 ? "positive" : "negative");
+  const profitLossPercent =
+    complete && result.returnRateAvailable !== false && result.profitLoss !== null && result.netInvested > 0
+      ? (result.profitLoss / result.netInvested) * 100
+      : null;
   setDashboardMetric(
     "dashboard-profit-loss-percent",
     "dashboard-profit-loss-percent-note",
@@ -2170,16 +2339,15 @@ function portfolioUnitLabel(assetId, unit) {
   return text(`portfolio.units.${assetId}`, unit || text("currencyUnit"));
 }
 
-function allocationRows(allocation, amounts = null, assetIds = CORE_PLAN_ASSET_KEYS, editable = false) {
+function allocationRows(allocation, assetIds = CORE_PLAN_ASSET_KEYS, editable = false) {
   return assetIds
     .map((key) => {
       const meta = assetMeta(key);
       const weight = Number(allocation[key]) || 0;
-      const amount = amounts ? amounts[key] : 0;
       const weightControl = editable
-        ? `<label class="allocation-weight-input"><input type="number" min="0" max="100" step="0.1" data-plan-weight="${escapeHTML(key)}" aria-label="وزن پیشنهادی ${escapeHTML(meta.title)}" value="${weight}"><span>٪</span></label>`
+        ? `<label class="allocation-weight-input"><span>${escapeHTML(text("allocation.targetPortfolioWeight"))}</span><input type="number" min="0" max="100" step="0.1" data-plan-weight="${escapeHTML(key)}" aria-label="${escapeHTML(text("allocation.targetPortfolioWeight"))} ${escapeHTML(meta.title)}" value="${weight}"><span>٪</span></label>`
         : "";
-      return `<div class="allocation-row"><div class="allocation-name"><span class="asset-dot ${escapeHTML(meta.dotClass)}"></span><div><strong>${escapeHTML(meta.title)}</strong><small>${escapeHTML(meta.description)}</small></div></div>${weightControl}<div class="allocation-numbers"><strong>${formatPercent(weight)}</strong><small>${escapeHTML(formatDisplayMoney(amount))}</small></div></div>`;
+      return `<div class="allocation-row"><div class="allocation-name"><span class="asset-dot ${escapeHTML(meta.dotClass)}"></span><div><strong>${escapeHTML(meta.title)}</strong><small>${escapeHTML(meta.description)}</small></div></div>${weightControl}<div class="allocation-numbers"><small>${escapeHTML(text("allocation.targetPortfolioWeight"))}</small><strong>${formatPercent(weight)}</strong></div></div>`;
     })
     .join("");
 }
@@ -2190,7 +2358,7 @@ function renderReasons(profile, historyPortfolio) {
   if (profile.horizonYears <= 3) reasons.push(text("reasons.shortHorizon"));
   if (profile.horizonYears >= 10) reasons.push(text("reasons.longHorizon"));
   if (profile.riskTolerance === "conservative") reasons.push(text("reasons.conservative"));
-  if (historyPortfolio.totalInvested > 0) reasons.push(text("reasons.history"));
+  if (historyPortfolio?.transactions?.length) reasons.push(text("reasons.history"));
   reasons.push(text("reasons.noForecast"));
   reasonListEl.innerHTML = reasons
     .filter(Boolean)
@@ -2203,9 +2371,20 @@ function renderContributionPlan(plan, assetIds = CORE_PLAN_ASSET_KEYS) {
   const rows = assetIds
     .map((key) => {
       const meta = assetMeta(key);
-      const drift = Number(plan.drift?.[key]) || 0;
-      const driftLabel = `${drift > 0 ? "+" : ""}${formatPercent(drift)} ${text("allocation.percentagePoints")}`;
-      return `<div class="contribution-row"><span><span class="asset-dot ${escapeHTML(meta.dotClass)}"></span>${escapeHTML(meta.title)}<small>${escapeHTML(text("allocation.current"))} ${formatPercent(plan.currentWeights?.[key] || 0)} · ${escapeHTML(text("allocation.target"))} ${formatPercent(plan.weights[key])} · ${escapeHTML(text("allocation.drift"))} ${escapeHTML(driftLabel)}</small></span><strong>${escapeHTML(formatDisplayMoney(plan.amounts[key]))}</strong></div>`;
+      const currentWeight = plan.currentWeights?.[key];
+      const targetWeight = plan.targetWeights?.[key];
+      const contributionWeight = Number(plan.contributionWeights?.[key]) || 0;
+      const amount = Number(plan.contributionAmounts?.[key] ?? plan.amounts?.[key]) || 0;
+      const deviation = plan.deviationPercentagePoints?.[key] ?? plan.drift?.[key];
+      const currentLabel =
+        currentWeight === undefined || currentWeight === null
+          ? text("portfolio.unavailable")
+          : formatPercent(currentWeight);
+      const deviationLabel =
+        deviation === undefined || deviation === null
+          ? text("portfolio.unavailable")
+          : `${Number(deviation) > 0 ? "+" : ""}${formatPercent(deviation)} ${text("allocation.percentagePoints")}`;
+      return `<div class="contribution-row"><span><span class="asset-dot ${escapeHTML(meta.dotClass)}"></span>${escapeHTML(meta.title)}<small>${escapeHTML(text("allocation.currentPortfolioWeight"))}: ${escapeHTML(currentLabel)} · ${escapeHTML(text("allocation.targetPortfolioWeight"))}: ${targetWeight === undefined ? text("portfolio.unavailable") : formatPercent(targetWeight)} · ${escapeHTML(text("allocation.drift"))}: ${escapeHTML(deviationLabel)} · ${escapeHTML(text("allocation.contributionWeight"))}: ${formatPercent(contributionWeight)}</small></span><strong><small>${escapeHTML(text("allocation.contributionAmount"))}</small>${escapeHTML(formatDisplayMoney(amount))}</strong></div>`;
     })
     .join("");
   const excluded = Number(plan.excludedInvestableTotal) || 0;
@@ -2218,12 +2397,19 @@ function renderContributionPlan(plan, assetIds = CORE_PLAN_ASSET_KEYS) {
     missingCount > 0
       ? `<p class="data-note">${escapeHTML(text("allocation.excludedMissingPrices"))} ${formatIRR(missingCount)}</p>`
       : "";
-  contributionPlanEl.innerHTML = rows + note + missingNote;
+  const qualityNote =
+    plan.dataStatus === "incomplete"
+      ? text("allocation.incompletePrices")
+      : plan.dataStatus === "estimated"
+        ? text("allocation.estimatedPrices")
+        : "";
+  contributionPlanEl.innerHTML = rows + note + missingNote + (qualityNote ? `<p class="data-note">${escapeHTML(qualityNote)}</p>` : "");
 }
 
 function renderLineChart(container, points, valueKey = "nominal", label = "") {
   if (!container) return;
   container.innerHTML = lineChartMarkup({
+    ...chartA11yProps(),
     series: [
       {
         name: label,
@@ -2284,19 +2470,49 @@ function targetWeightForHolding(assetId, definition, plan) {
   return targets.length ? targets.reduce((total, value) => total + value, 0) : null;
 }
 
+function portfolioHoldingsColumnLabels() {
+  return [
+    text("portfolio.holdingsColumns.asset", "Asset"),
+    text("portfolio.holdingsColumns.quantity", "Quantity"),
+    text("portfolio.holdingsColumns.currentValue", "Current value"),
+    text("portfolio.holdingsColumns.costBasis", "Cost basis"),
+    text("portfolio.holdingsColumns.profitLoss", "Open profit or loss"),
+    text("portfolio.holdingsColumns.currentWeight", "Current portfolio weight"),
+    text("portfolio.holdingsColumns.targetWeight", "Target portfolio weight"),
+    text("portfolio.holdingsColumns.quoteStatus", "Quote source and time"),
+  ];
+}
+
+function renderPortfolioHoldingsHeadings() {
+  const labels = portfolioHoldingsColumnLabels();
+  $$(".holdings-table thead button").forEach((button, index) => {
+    if (labels[index]) button.textContent = labels[index];
+  });
+  $$("#portfolio-holdings-body tr").forEach((row) =>
+    [...row.cells].slice(1).forEach((cell, index) => {
+      if (labels[index + 1]) cell.setAttribute("data-label", labels[index + 1]);
+    }),
+  );
+}
+
 function renderPortfolioHoldings(portfolio, result, plan, asOf) {
   const body = $("#portfolio-holdings-body");
   const count = $("#portfolio-holdings-count");
   if (!body) return;
-  const basisByAsset = portfolioCostBasis(result.transactions, asOf);
+  const columnLabels = portfolioHoldingsColumnLabels();
+  renderPortfolioHoldingsHeadings();
+  const basisByAsset = result.costBasisByAsset || portfolioCostBasis(result.transactions, asOf);
   const holdings = assetIds(portfolio)
     .map((assetId) => {
       const definition = portfolio.assets?.[assetId] || PORTFOLIO_ASSETS[assetId];
       const item = result.values[assetId];
       if (!item || Math.abs(item.quantity) <= 1e-7) return null;
       const quote = definition?.marketKey ? liveMarket?.assets?.[definition.marketKey] : null;
-      const basis = basisByAsset[assetId]?.basis ?? null;
+      const basisEntry = basisByAsset[assetId];
+      const basis = basisEntry?.basis ?? null;
+      const basisStatus = basisEntry?.status || "unknown";
       const disputed = !item.manualPrice && quote?.status === "conflicted";
+      const estimateOnly = ["estimated", "mixed"].includes(basisStatus);
       return {
         assetId,
         definition,
@@ -2307,7 +2523,11 @@ function renderPortfolioHoldings(portfolio, result, plan, asOf) {
         value: item.value,
         allocation: result.missingPrices.length ? null : Number(result.allocation[assetId]) || 0,
         basis,
-        profitLoss: item.value === null || basis === null ? null : item.value - basis,
+        basisStatus,
+        profitLoss:
+          item.value === null || basis === null || basisStatus !== "confirmed" ? null : item.value - basis,
+        estimatedProfitLoss:
+          item.value === null || basis === null || !estimateOnly ? null : item.value - basis,
         target: targetWeightForHolding(assetId, definition, plan),
         disputed,
       };
@@ -2361,8 +2581,17 @@ function renderPortfolioHoldings(portfolio, result, plan, asOf) {
           const statusClass = marketConflict || missing ? "holdings-quote-warning" : "";
           const actualWeight = result.missingPrices.length ? null : Number(result.allocation[row.assetId]) || 0;
           const targetWeight = row.target;
-          const pnlClass = row.profitLoss === null ? "muted" : row.profitLoss >= 0 ? "positive" : "negative";
-          const pnl = row.profitLoss === null ? text("portfolio.unavailable", "—") : formatDisplayMoney(row.profitLoss);
+          const pnlValue = row.profitLoss ?? row.estimatedProfitLoss;
+          const pnlClass = pnlValue === null ? "muted" : pnlValue >= 0 ? "positive" : "negative";
+          const pnl = pnlValue === null ? text("portfolio.unavailable", "—") : formatDisplayMoney(pnlValue);
+          const basisStatusLabel = text(`portfolio.costBasis.${row.basisStatus}`, text("portfolio.costBasis.unknown"));
+          const basisDisplay = row.basis === null ? "—" : formatDisplayMoney(row.basis);
+          const pnlStatusLabel =
+            row.estimatedProfitLoss !== null
+              ? text("portfolio.estimatedProfitLoss")
+              : row.profitLoss !== null
+                ? text("portfolio.confirmedProfitLoss")
+                : text("portfolio.unavailable");
           return (
             '<tr><th scope="row"><span class="holdings-asset-name"' +
             portfolioAssetUserContentAttribute(row.assetId, portfolio) +
@@ -2370,28 +2599,31 @@ function renderPortfolioHoldings(portfolio, result, plan, asOf) {
             escapeHTML(meta.dotClass) +
             '"></span>' +
             escapeHTML(meta.title) +
-            "</span></th><td>" +
+            "</span></th><td data-label=\"" + escapeHTML(columnLabels[1]) + "\">" +
             escapeHTML(quantity) +
-            "</td><td>" +
+            "</td><td data-label=\"" + escapeHTML(columnLabels[2]) + "\">" +
             (missing
               ? '<span class="holdings-quote-warning">' + escapeHTML(quoteState) + "</span>"
               : escapeHTML(formatDisplayMoney(row.item.value))) +
-            "</td><td>" +
-            (row.basis === null ? "—" : escapeHTML(formatDisplayMoney(row.basis))) +
-            '</td><td class="' +
+            "</td><td data-label=\"" + escapeHTML(columnLabels[3]) + "\">" +
+            (row.basis === null
+              ? "—"
+              : `${escapeHTML(basisDisplay)}<small>${escapeHTML(basisStatusLabel)}</small>`) +
+            '</td><td data-label="' + escapeHTML(columnLabels[4]) + '" class="' +
             pnlClass +
             '">' +
             escapeHTML(pnl) +
-            (row.profitLoss !== null && row.basis > 0
-              ? "<small>" + escapeHTML(formatPercent((row.profitLoss / row.basis) * 100)) + "</small>"
+            `<small>${escapeHTML(pnlStatusLabel)}</small>` +
+            (pnlValue !== null && row.basis > 0
+              ? "<small>" + escapeHTML(formatPercent((pnlValue / row.basis) * 100)) + "</small>"
               : "") +
-            "</td><td>" +
+            "</td><td data-label=\"" + escapeHTML(columnLabels[5]) + "\">" +
             (actualWeight === null ? "—" : escapeHTML(formatPercent(actualWeight))) +
-            "</td><td>" +
+            "</td><td data-label=\"" + escapeHTML(columnLabels[6]) + "\">" +
             (targetWeight === null
               ? escapeHTML(text("portfolio.noTarget", "هدف ثبت نشده"))
               : escapeHTML(formatPercent(targetWeight))) +
-            '</td><td class="' +
+            '</td><td data-label="' + escapeHTML(columnLabels[7]) + '" class="' +
             statusClass +
             '"><strong>' +
             escapeHTML(quoteState) +
@@ -2453,6 +2685,7 @@ function renderPortfolioChart(series, portfolio, inflationRate) {
     };
   });
   chart.innerHTML = lineChartMarkup({
+    ...chartA11yProps(),
     series: [
       {
         name: "سرمایه خالص",
@@ -2481,6 +2714,31 @@ function setPortfolioStatus(message, type = "neutral") {
   if (!portfolioTransferStatusEl) return;
   portfolioTransferStatusEl.textContent = message;
   portfolioTransferStatusEl.className = `transfer-status transfer-${type}`;
+}
+
+function clearPortfolioFormError(formSelector) {
+  const form = $(formSelector);
+  form?.querySelectorAll("[aria-invalid='true']").forEach((field) => field.removeAttribute("aria-invalid"));
+  const error = form?.querySelector("[data-form-error]");
+  if (error) {
+    error.textContent = "";
+    error.hidden = true;
+  }
+}
+
+function showPortfolioFormError(formSelector, fieldSelector, messageKey) {
+  clearPortfolioFormError(formSelector);
+  const form = $(formSelector);
+  const error = form?.querySelector("[data-form-error]");
+  const field = fieldSelector ? $(fieldSelector) : null;
+  if (error) {
+    error.textContent = text(messageKey);
+    error.hidden = false;
+  }
+  if (field) {
+    field.setAttribute("aria-invalid", "true");
+    field.focus();
+  }
 }
 
 function populatePortfolioAssetOptions() {
@@ -2534,7 +2792,7 @@ function populatePortfolioAssetOptions() {
     if (unit)
       unit.textContent = portfolioUnitLabel(
         marketSelect.value,
-        portfolio.assets?.[marketSelect.value]?.unit || (marketSelect.value === "currency" ? "TOMAN" : ""),
+        portfolio.assets?.[marketSelect.value]?.unit || PORTFOLIO_ASSETS[marketSelect.value]?.unit || "",
       );
     updateMarketEntryAvailability();
   }
@@ -2583,6 +2841,10 @@ function defaultModelSettings() {
 
 function normalizeModelSettings(raw = {}) {
   const defaults = defaultModelSettings();
+  const validRange = (value, min, max) => {
+    const numeric = Number(value);
+    return value !== null && value !== "" && Number.isFinite(numeric) && numeric >= min && numeric <= max;
+  };
   const assumptions = Object.fromEntries(
     SIMULATION_ASSET_KEYS.map((assetId) => {
       const supplied = raw.assumptions?.[assetId] || {};
@@ -2592,10 +2854,8 @@ function normalizeModelSettings(raw = {}) {
       return [
         assetId,
         {
-          annualReturn: Number.isFinite(annualReturn) ? clamp(annualReturn, -0.99, 3) : fallback.annualReturn,
-          annualVolatility: Number.isFinite(annualVolatility)
-            ? clamp(annualVolatility, 0, 3)
-            : fallback.annualVolatility,
+          annualReturn: validRange(supplied.annualReturn, -0.99, 3) ? annualReturn : fallback.annualReturn,
+          annualVolatility: validRange(supplied.annualVolatility, 0, 3) ? annualVolatility : fallback.annualVolatility,
         },
       ];
     }),
@@ -2612,31 +2872,62 @@ function normalizeModelSettings(raw = {}) {
       const fee = (key) => {
         if (Object.hasOwn(supplied, key) && (supplied[key] === null || supplied[key] === "")) return null;
         const value = Number(supplied[key]);
-        return Number.isFinite(value) && value >= 0 ? clamp(value, 0, 0.99) : fallback[key];
+        return validRange(value, 0, 0.99) ? value : fallback[key];
       };
       return [assetId, { buyFee: fee("buyFee"), sellFee: fee("sellFee"), spread: fee("spread") }];
     }),
   );
   return {
     ...defaults,
-    inflationRate: Number.isFinite(rate) ? clamp(rate, -0.2, 3) : defaults.inflationRate,
-    contributionGrowth: Number.isFinite(growth) ? clamp(growth, -0.5, 2) : defaults.contributionGrowth,
+    inflationRate: validRange(raw.inflationRate, -0.2, 3) ? rate : defaults.inflationRate,
+    contributionGrowth: validRange(raw.contributionGrowth, -0.5, 2) ? growth : defaults.contributionGrowth,
     paths: [1000, 2000, 5000, 10000].includes(paths) ? paths : defaults.paths,
     rebalance: typeof raw.rebalance === "boolean" ? raw.rebalance : defaults.rebalance,
-    targetDriftThresholdPercent: Number.isFinite(driftThreshold)
-      ? clamp(driftThreshold, 0, 25)
+    targetDriftThresholdPercent: validRange(raw.targetDriftThresholdPercent, 0, 25)
+      ? driftThreshold
       : defaults.targetDriftThresholdPercent,
     assumptions,
     transactionCosts,
     inflationSource: typeof raw.inflationSource === "string" ? raw.inflationSource.slice(0, 120) : null,
     inflationPeriod: typeof raw.inflationPeriod === "string" ? raw.inflationPeriod.slice(0, 40) : null,
-    inflationFetchedAt: typeof raw.inflationFetchedAt === "string" ? raw.inflationFetchedAt : null,
+    inflationFetchedAt:
+      typeof raw.inflationFetchedAt === "string" && Number.isFinite(Date.parse(raw.inflationFetchedAt))
+        ? new Date(raw.inflationFetchedAt).toISOString()
+        : null,
   };
 }
 
 function loadModelSettings() {
   const saved = readJson(SETTINGS_KEY, null);
-  if (saved && typeof saved === "object") return normalizeModelSettings(saved);
+  if (saved && typeof saved === "object") {
+    const normalized = normalizeModelSettings(saved);
+    if (
+      (saved.inflationRate !== undefined && normalized.inflationRate !== Number(saved.inflationRate)) ||
+      (saved.contributionGrowth !== undefined && normalized.contributionGrowth !== Number(saved.contributionGrowth)) ||
+      (saved.paths !== undefined && normalized.paths !== Number(saved.paths)) ||
+      (saved.targetDriftThresholdPercent !== undefined &&
+        normalized.targetDriftThresholdPercent !== Number(saved.targetDriftThresholdPercent)) ||
+      (saved.inflationFetchedAt !== undefined && normalized.inflationFetchedAt !== saved.inflationFetchedAt) ||
+      SIMULATION_ASSET_KEYS.some((assetId) => {
+        const supplied = saved.assumptions?.[assetId];
+        const stored = normalized.assumptions[assetId];
+        const suppliedCosts = saved.transactionCosts?.[assetId];
+        return (
+          (supplied?.annualReturn !== undefined && stored.annualReturn !== Number(supplied.annualReturn)) ||
+          (supplied?.annualVolatility !== undefined && stored.annualVolatility !== Number(supplied.annualVolatility)) ||
+          ["buyFee", "sellFee", "spread"].some((key) =>
+            suppliedCosts && Object.hasOwn(suppliedCosts, key)
+              ? suppliedCosts[key] !== null && suppliedCosts[key] !== "" &&
+                (normalized.transactionCosts[assetId][key] === null ||
+                  normalized.transactionCosts[assetId][key] !== Number(suppliedCosts[key]))
+              : false,
+          )
+        );
+      })
+    )
+      storageWarning = true;
+    return normalized;
+  }
   const oldProfile = readJson(PROFILE_KEY, null);
   const migrated = defaultModelSettings();
   if (oldProfile && typeof oldProfile === "object") {
@@ -2660,6 +2951,7 @@ function saveModelSettings(next) {
 
 function saveModelSettingsForm(event) {
   event.preventDefault();
+  if (!validateNumericFields(event.currentTarget, { report: true })) return;
   const assumptions = Object.fromEntries(
     SIMULATION_ASSET_KEYS.map((assetId) => [
       assetId,
@@ -2705,20 +2997,31 @@ async function refreshInflationAssumption() {
     if (!response.ok) throw new Error("inflation-unavailable");
     const data = await response.json();
     const value = Number(data.inflationRate);
-    if (!Number.isFinite(value) || !Number.isFinite(Number(data.year))) throw new Error("inflation-invalid");
+    const year = Number(data.year);
+    const fetchedAt = data.fetchedAt || new Date().toISOString();
+    if (
+      !Number.isFinite(value) ||
+      value < -20 ||
+      value > 300 ||
+      !Number.isInteger(year) ||
+      year < 1900 ||
+      year > new Date().getFullYear() + 1 ||
+      !Number.isFinite(Date.parse(fetchedAt))
+    )
+      throw new Error("inflation-invalid");
     modelSettings = normalizeModelSettings({
       ...modelSettings,
       inflationRate: value / 100,
       inflationSource: data.source || "World Bank",
-      inflationPeriod: String(data.year),
-      inflationFetchedAt: data.fetchedAt || new Date().toISOString(),
+      inflationPeriod: String(year),
+      inflationFetchedAt: fetchedAt,
     });
     writeJson(SETTINGS_KEY, modelSettings);
     writeJson(INFLATION_CACHE_KEY, { ...data, cachedAt: new Date().toISOString() });
     renderSettingsAssumptions();
     applyModelSettingsToSimulation();
     const input = $("#settings-inflation-rate");
-    if (input) input.value = String(Math.round(value * 10) / 10);
+    if (input) input.value = percentInputValue(value);
   } catch {
     if (status) status.textContent = "دریافت تورم مرجع ناموفق بود؛ مقدار فعلی دست‌نخورده ماند.";
   }
@@ -2727,8 +3030,8 @@ async function refreshInflationAssumption() {
 function applyModelSettingsToSimulation() {
   if (!modelSettings) return;
   const values = {
-    "simulation-inflation": modelSettings.inflationRate * 100,
-    "simulation-growth": modelSettings.contributionGrowth * 100,
+    "simulation-inflation": percentInputValue(modelSettings.inflationRate * 100),
+    "simulation-growth": percentInputValue(modelSettings.contributionGrowth * 100),
     "simulation-path-count": modelSettings.paths,
   };
   Object.entries(values).forEach(([id, value]) => {
@@ -2757,7 +3060,7 @@ function renderSettingsAssumptions() {
       `<div><strong>دارایی</strong><strong>بازده مؤثر سالانه‌ی فرضی</strong><strong>نوسان سالانه</strong></div>` +
       SIMULATION_ASSET_KEYS.map((assetId) => {
         const title = assetMeta(assetId).title;
-        return `<div><span>${escapeHTML(title)}</span><input id="settings-return-${escapeHTML(assetId)}" aria-label="بازده مؤثر سالانه‌ی فرضی ${escapeHTML(title)}" type="number" min="-99" max="300"><input id="settings-vol-${escapeHTML(assetId)}" aria-label="نوسان فرضی ${escapeHTML(title)}" type="number" min="0" max="300"></div>`;
+        return `<div><span>${escapeHTML(title)}</span><input id="settings-return-${escapeHTML(assetId)}" aria-label="بازده مؤثر سالانه‌ی فرضی ${escapeHTML(title)}" type="number" min="-99" max="300" step="any" required><input id="settings-vol-${escapeHTML(assetId)}" aria-label="نوسان فرضی ${escapeHTML(title)}" type="number" min="0" max="300" step="any" required></div>`;
       }).join("");
     assumptionGrid.dataset.rendered = "true";
   }
@@ -2774,22 +3077,22 @@ function renderSettingsAssumptions() {
           escapeHTML(assetId) +
           '" aria-label="کارمزد خرید ' +
           escapeHTML(title) +
-          '" type="number" min="0" max="99" step="0.1"><input id="settings-fee-sell-' +
+          '" type="number" min="0" max="99" step="any"><input id="settings-fee-sell-' +
           escapeHTML(assetId) +
           '" aria-label="کارمزد فروش ' +
           escapeHTML(title) +
-          '" type="number" min="0" max="99" step="0.1"><input id="settings-fee-spread-' +
+          '" type="number" min="0" max="99" step="any"><input id="settings-fee-spread-' +
           escapeHTML(assetId) +
           '" aria-label="فاصله خرید و فروش ' +
           escapeHTML(title) +
-          '" type="number" min="0" max="99" step="0.1"></div>'
+          '" type="number" min="0" max="99" step="any"></div>'
         );
       }).join("");
     feeGrid.dataset.rendered = "true";
   }
   const scalarValues = {
-    "settings-inflation-rate": modelSettings.inflationRate * 100,
-    "settings-contribution-growth": modelSettings.contributionGrowth * 100,
+    "settings-inflation-rate": percentInputValue(modelSettings.inflationRate * 100),
+    "settings-contribution-growth": percentInputValue(modelSettings.contributionGrowth * 100),
     "settings-simulation-paths": modelSettings.paths,
     "settings-rebalancing": modelSettings.rebalance,
     "settings-drift-threshold": modelSettings.targetDriftThresholdPercent,
@@ -2805,8 +3108,9 @@ function renderSettingsAssumptions() {
     const returnInput = $("#settings-return-" + assetId);
     const volInput = $("#settings-vol-" + assetId);
     if (returnInput && document.activeElement !== returnInput)
-      returnInput.value = String(assumptions.annualReturn * 100);
-    if (volInput && document.activeElement !== volInput) volInput.value = String(assumptions.annualVolatility * 100);
+      returnInput.value = percentInputValue(assumptions.annualReturn * 100);
+    if (volInput && document.activeElement !== volInput)
+      volInput.value = percentInputValue(assumptions.annualVolatility * 100);
     const costs = modelSettings.transactionCosts[assetId];
     ["buy", "sell", "spread"].forEach((side) => {
       const input = document.querySelector("#settings-fee-" + side + "-" + assetId);
@@ -2860,29 +3164,41 @@ function updateMarketEntryAvailability() {
   const dateValue = $("#portfolio-market-date")?.value;
   const creatingNamedAsset = Boolean($("#portfolio-new-stock-title")?.value.trim());
   const priceAtAcquisition = assetId && !creatingNamedAsset ? marketEntryPriceAt(assetId, dateValue) : null;
-  const needsPrice = !(Number.isFinite(Number(priceAtAcquisition)) && Number(priceAtAcquisition) > 0);
-  const transactionTime = new Date(dateValue).getTime();
-  const isBackdated = Number.isFinite(transactionTime) && transactionTime < Date.now() - 60_000;
   const fields = $("#portfolio-market-acquisition-fields");
   const priceInput = $("#portfolio-market-acquisition-price");
   const hint = $("#portfolio-market-acquisition-hint");
-  if (fields) fields.classList.toggle("is-hidden", !needsPrice && !isBackdated);
-  if (priceInput) priceInput.required = needsPrice;
+  const estimateField = $("#portfolio-market-reference-estimate-field");
+  const estimateCheckbox = $("#portfolio-market-use-reference-estimate");
+  const hasReferencePrice = Number.isFinite(Number(priceAtAcquisition)) && Number(priceAtAcquisition) > 0;
+  const hasExistingTransactions = activePortfolioVersion(readPortfolio()).transactions.length > 0;
+  const dateLabel = $("#portfolio-market-date-label");
+  if (dateLabel)
+    dateLabel.textContent = hasExistingTransactions
+      ? text("portfolio.purchaseDate")
+      : text("portfolio.openingDate");
+  fields?.classList.remove("is-hidden");
+  if (priceInput) priceInput.required = false;
+  estimateField?.classList.toggle("is-hidden", !hasReferencePrice || creatingNamedAsset);
+  if (!hasReferencePrice || creatingNamedAsset) {
+    if (estimateCheckbox) {
+      estimateCheckbox.checked = false;
+      estimateCheckbox.disabled = true;
+    }
+  } else if (estimateCheckbox) estimateCheckbox.disabled = false;
   if (hint)
-    hint.textContent = needsPrice
-      ? creatingNamedAsset
-        ? "برای نماد تازه، قیمت واقعی خرید هر سهم را وارد کن. برای ارزش امروز، بعدا قیمت دستی ثبت کن."
-        : "قیمت واقعی خرید را وارد کن؛ این عدد فقط بهای ثبت معامله است و قیمت امروز نیست."
-      : isBackdated
-        ? "قیمت بازار همان تاریخ مبناست؛ اگر رسید قیمت متفاوتی دارد، مبلغ واقعی را وارد کن."
-        : "قیمت بازار مبناست؛ اگر قیمت واقعی خریدت متفاوت است، آن را وارد کن.";
+    hint.textContent = hasReferencePrice
+      ? text("portfolio.unknownBasisHint")
+      : text("portfolio.unknownBasisHint");
 }
 
 function renderEmergencyCoverage(portfolioResult = null) {
   const result = portfolioResult || calculatePortfolio(readPortfolio(), liveMarket || {});
   const hasTransactions = result.transactions.length > 0;
   const essentialExpenses = Math.max(0, numberFromInput($("#essential-monthly-expenses")?.value));
-  const coverageMonths = essentialExpenses > 0 ? result.liquidTotal / essentialExpenses : null;
+  const coverageMonths =
+    essentialExpenses > 0 && result.liquidTotal !== null && result.liquidTotal !== undefined
+      ? result.liquidTotal / essentialExpenses
+      : null;
   const coverageLabel =
     coverageMonths === null
       ? text("portfolio.coverageMissing")
@@ -2896,7 +3212,9 @@ function renderEmergencyCoverage(portfolioResult = null) {
         ? text(`portfolio.emergency.${legacyEmergencyFund}`)
         : `${coverageLabel} · ${text(`portfolio.emergency.${coverageMonths >= 6 ? "complete" : coverageMonths >= 1 ? "partial" : "none"}`)}`;
   const liquidMetric = $("#portfolio-liquid-total");
-  if (liquidMetric) liquidMetric.textContent = hasTransactions ? portfolioValueLabel(result.liquidTotal) : "—";
+  if (liquidMetric)
+    liquidMetric.textContent =
+      hasTransactions && result.liquidTotal !== null ? portfolioValueLabel(result.liquidTotal) : "—";
   return {
     coverageMonths,
     status:
@@ -2926,15 +3244,33 @@ function renderPortfolio() {
     : hasTransactions
       ? text("portfolio.unavailable", "در دسترس نیست")
       : "—";
-  $("#portfolio-net-invested").textContent = portfolioValueLabel(result.netInvested);
-  $("#portfolio-profit-loss").textContent = completeValuation
-    ? portfolioValueLabel(result.profitLoss)
+  $("#portfolio-net-invested").textContent = portfolioValueLabel(
+    result.netInvestedStatus === "estimated" ? result.estimatedNetInvested : result.netInvested,
+  );
+  const netInvestedLabel = $("#portfolio-net-invested")?.previousElementSibling;
+  if (netInvestedLabel)
+    netInvestedLabel.textContent =
+      result.netInvestedStatus === "estimated"
+        ? text("portfolio.estimatedNetInvested")
+        : result.netInvestedStatus === "unavailable"
+          ? text("portfolio.unavailable")
+          : text("portfolio.netInvested");
+  const displayedProfitLoss = result.profitLoss ?? result.estimatedProfitLoss;
+  const profitLossAvailable = completeValuation && displayedProfitLoss !== null && displayedProfitLoss !== undefined;
+  $("#portfolio-profit-loss").textContent = profitLossAvailable
+    ? portfolioValueLabel(displayedProfitLoss)
     : text("portfolio.unavailable", "در دسترس نیست");
-  $("#portfolio-profit-loss").className = completeValuation
-    ? result.profitLoss >= 0
+  $("#portfolio-profit-loss").className = profitLossAvailable
+    ? displayedProfitLoss >= 0
       ? "positive"
       : "negative"
     : "muted";
+  const profitLossLabel = $("#portfolio-profit-loss")?.previousElementSibling;
+  if (profitLossLabel)
+    profitLossLabel.textContent =
+      result.performanceStatus === "estimated"
+        ? text("portfolio.estimatedProfitLoss")
+        : text("portfolio.profitLoss");
   $("#portfolio-cagr").textContent =
     !completeValuation || result.cagr === null ? text("portfolio.unavailable") : formatPercent(result.cagr * 100);
   $("#portfolio-real-return").textContent =
@@ -2959,13 +3295,23 @@ function renderPortfolio() {
   $("#portfolio-audit-count").textContent = `${version.audit.length} ${text("portfolio.auditCount")}`;
 
   const heldAssetIds = assetIds(portfolio).filter((assetId) => Math.abs(result.values[assetId].quantity) > 1e-7);
+  const currentValueLabel = $("#portfolio-current-value")?.previousElementSibling;
+  if (currentValueLabel)
+    currentValueLabel.textContent = ["accepted-estimate", "stale", "manual"].includes(result.quoteQualityStatus)
+      ? text("portfolio.estimatedCurrentValue")
+      : text("portfolio.currentValue");
   const allocationRows = heldAssetIds
     .map((assetId) => {
       const meta = portfolioAssetMeta(assetId, portfolio);
       const item = result.values[assetId];
-      const quoteNote = item.priceObservedAt
-        ? `${item.manualPrice ? "قیمت دستی" : "منبع بازار"} · ${formatDateTime(item.priceObservedAt)} · ${freshnessLabel(item.priceObservedAt)}`
-        : item.priceSource || "زمان مشاهده نامشخص";
+      const quoteNote = [
+        text(`portfolio.quoteQuality.${item.quoteQuality}`, text("portfolio.quoteQuality.accepted")),
+        item.priceSource,
+        item.priceObservedAt ? formatDateTime(item.priceObservedAt) : text("market.observationUnknown"),
+        item.priceObservedAt ? freshnessLabel(item.priceObservedAt) : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
       return `<button type="button" class="allocation-row allocation-row-button" data-portfolio-asset="${escapeHTML(assetId)}"><span class="allocation-name"><span class="asset-dot ${escapeHTML(meta.dotClass)}"></span><span><strong${portfolioAssetUserContentAttribute(assetId, portfolio)}>${escapeHTML(meta.title)}</strong><small>${escapeHTML(formatHoldingQuantity(assetId, item.quantity, item.unit))} · ${escapeHTML(quoteNote)}</small></span></span><span class="allocation-numbers"><strong>${item.value === null || result.missingPrices.length ? "—" : formatPercent(result.allocation[assetId])}</strong><small>${escapeHTML(portfolioValueLabel(item.value))}</small></span></button>`;
     })
     .join("");
@@ -2996,10 +3342,14 @@ function renderPortfolio() {
       })
       .join(escapeHTML(listSeparator()))}`;
   else {
+    const qualityLabel = text(
+      `portfolio.valuationQuality.${result.quoteQualityStatus}`,
+      text("portfolio.complete"),
+    );
     const manualCount = heldAssetIds.filter((assetId) => result.values[assetId]?.manualPrice).length;
     quality.textContent = manualCount
-      ? `${text("portfolio.complete")} · ${formatIRR(manualCount)} قیمت دستی، با زمان مشاهده مشخص`
-      : text("portfolio.complete");
+      ? `${qualityLabel} · ${formatIRR(manualCount)} ${text("portfolio.manualQuoteCount")}`
+      : qualityLabel;
   }
   quality.className = `data-note ${result.missingPrices.length ? "data-note-warning" : ""}`;
 
@@ -3011,7 +3361,11 @@ function renderPortfolio() {
   if (contributionChart) {
     const monthlyContributions = portfolioContributionSeries(result.transactions, asOf, 12).map((point) => ({
       date: point.date,
-      label: new Intl.DateTimeFormat(currentLocale().numberLocale, { month: "short", year: "2-digit" }).format(
+      label: new Intl.DateTimeFormat(`${currentLocale().numberLocale}-u-ca-${REPORTING_CALENDAR}`, {
+        month: "short",
+        year: "2-digit",
+        timeZone: REPORTING_TIME_ZONE,
+      }).format(
         new Date(point.date),
       ),
       value: point.value,
@@ -3090,6 +3444,7 @@ function renderPortfolio() {
     : `<div class="empty-state">${escapeHTML(text("portfolio.noAudit"))}</div>`;
   renderStockList(portfolio, result);
   renderDashboard();
+  renderBackupStatus();
 }
 
 function renderStockList(portfolio, result) {
@@ -3120,14 +3475,87 @@ function openAssetDrawer(assetId) {
   const item = result.values[assetId];
   if (!item) return;
   const meta = portfolioAssetMeta(assetId, portfolio);
+  assetDrawerOpener = document.activeElement;
+  const basis = result.costBasisByAsset?.[assetId];
   title.textContent = meta.title;
   const transactions = result.transactions.filter(
     (transaction) => transaction.assetId === assetId || transaction.targetAssetId === assetId,
   ).length;
   const price = item.price === null ? "—" : portfolioValueLabel(item.price);
-  content.innerHTML = `<div class="asset-detail-summary"><div><span>مقدار</span><strong>${escapeHTML(formatHoldingQuantity(assetId, item.quantity, item.unit))}</strong></div><div><span>قیمت مبنا/بازار</span><strong>${escapeHTML(price)}</strong></div><div><span>ارزش فعلی</span><strong>${escapeHTML(portfolioValueLabel(item.value))}</strong></div><div><span>سهم از سبد</span><strong>${item.value === null || result.missingPrices.length ? "—" : escapeHTML(formatPercent(result.allocation[assetId] || 0))}</strong></div></div><div class="data-note ${item.value === null ? "data-note-warning" : ""}">${item.value === null ? "برای این دارایی قیمت معتبر در داده بازار وجود ندارد؛ ارزش ریالی را حدس نمی‌زنیم." : `در دفتر فعال ${formatIRR(transactions)} رویداد مرتبط ثبت شده است.`}</div><button type="button" class="secondary-button" data-go-view="portfolio">ویرایش موجودی و تراکنش‌ها</button>`;
+  const costBasisLabel = basis
+    ? text(`portfolio.costBasis.${basis.status}`, text("portfolio.costBasis.unknown"))
+    : text("portfolio.costBasis.unknown");
+  content.innerHTML = `<div class="asset-detail-summary"><div><span>${escapeHTML(text("portfolio.quantity"))}</span><strong>${escapeHTML(formatHoldingQuantity(assetId, item.quantity, item.unit))}</strong></div><div><span>${escapeHTML(text("portfolio.quote"))}</span><strong>${escapeHTML(price)}</strong></div><div><span>${escapeHTML(text("portfolio.currentValue"))}</span><strong>${escapeHTML(portfolioValueLabel(item.value))}</strong></div><div><span>${escapeHTML(text("portfolio.costBasisLabel"))}</span><strong>${basis?.basis === null || basis?.basis === undefined ? "—" : escapeHTML(formatDisplayMoney(basis.basis))}</strong><small>${escapeHTML(costBasisLabel)}</small></div></div><div class="data-note ${item.value === null ? "data-note-warning" : ""}">${item.value === null ? escapeHTML(text("portfolio.missingPrice")) : `${escapeHTML(text("portfolio.ledgerEvents"))}: ${formatIRR(transactions)}`}</div><div class="asset-detail-actions"><button type="button" class="secondary-button" data-correct-holding="${escapeHTML(assetId)}">${escapeHTML(text("portfolio.correctQuantity"))}</button><button type="button" class="secondary-button" data-basis-correction="${escapeHTML(assetId)}">${escapeHTML(text("portfolio.recordActualBasis"))}</button><button type="button" class="text-button" data-edit-manual-quote="${escapeHTML(assetId)}">${escapeHTML(text("portfolio.addManualQuote"))}</button></div>`;
+  drawer.dataset.restoreFocus = "true";
   if (typeof drawer.showModal === "function") drawer.showModal();
   else drawer.setAttribute("open", "");
+}
+
+function containAssetDrawerTab(event) {
+  if (event.key !== "Tab") return;
+  const drawer = $("#asset-detail-drawer");
+  if (!drawer?.open) return;
+  const selector =
+    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  const focusable = [...drawer.querySelectorAll(selector)].filter((element) => element.getClientRects().length > 0);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const active = document.activeElement;
+  const outside = !drawer.contains(active);
+  if (event.shiftKey && (active === first || outside)) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && (active === last || outside)) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+function closeAssetDrawer({ restoreFocus = true } = {}) {
+  const drawer = $("#asset-detail-drawer");
+  drawer.dataset.restoreFocus = restoreFocus ? "true" : "false";
+  if (typeof drawer?.close === "function") drawer.close();
+  else {
+    drawer?.removeAttribute("open");
+    if (restoreFocus && assetDrawerOpener instanceof HTMLElement) assetDrawerOpener.focus();
+  }
+}
+
+function openAssetScopedEditor(assetId, mode) {
+  const portfolio = readPortfolio();
+  const definition = portfolio.assets?.[assetId] || PORTFOLIO_ASSETS[assetId];
+  if (!definition) return;
+  closeAssetDrawer({ restoreFocus: false });
+  navigationController.goTo("portfolio");
+  const portfolioSection = $("#portfolio-section");
+  if (portfolioSection) portfolioSection.open = true;
+
+  if (mode === "manual-quote") {
+    $("#manual-quote-asset").value = assetId;
+    $("#manual-quote-price").value = "";
+    $("#manual-quote-date").value = localDateTimeValue();
+    $("#manual-quote-form").scrollIntoView({ behavior: "smooth", block: "center" });
+    $("#manual-quote-price").focus();
+    return;
+  }
+
+  const basisCorrection = mode === "basis";
+  const form = $("#advanced-transaction-form");
+  const advancedSection = form?.closest("details");
+  if (advancedSection) advancedSection.open = true;
+  $("#advanced-type").value = basisCorrection ? "BASIS_CORRECTION" : "ADJUSTMENT";
+  $("#advanced-asset").value = assetId;
+  $("#advanced-date").value = localDateTimeValue();
+  $("#advanced-quantity").value = basisCorrection
+    ? groupedNumber(String(calculatePortfolio(portfolio, liveMarket || {}).holdings[assetId] || 0))
+    : "";
+  $("#advanced-amount").value = "";
+  $("#advanced-unit-price").value = "";
+  updateAdvancedTransactionFields();
+  form.scrollIntoView({ behavior: "smooth", block: "center" });
+  const focusTarget = basisCorrection ? $("#advanced-amount") : $("#advanced-quantity");
+  focusTarget?.focus();
 }
 
 function renderSimulation(simulation, monteCarlo, validation = null, methodComparison = null) {
@@ -3359,12 +3787,39 @@ function renderBacktest(result) {
   if (!result || !result.available) {
     const missing = result?.unobservedAssets || [];
     const missingText = missing.length
-      ? ` داده‌ی مشاهده‌شده برای ${missing.map((asset) => (asset === "fixed" ? "درآمد ثابت" : assetMeta(asset).title)).join(listSeparator())} وجود ندارد.`
-      : "";
-    const observed = result?.observations
-      ? ` ${formatIRR(result.observations)} ماه داده‌ی ماهانه‌ی قابل استفاده موجود است.`
-      : "";
-    backtestEl.innerHTML = `<div class="empty-state">بک‌تست برای این ترکیب داده‌ی تاریخیِ پیوسته و مشاهده‌شده‌ی کافی ندارد.${escapeHTML(missingText)}${escapeHTML(observed)} نتیجه با بازده فرضی جایگزین نمی‌شود.</div>`;
+      ? missing.map((asset) => text(`assets.${asset}.title`, assetMeta(asset).title)).join(listSeparator())
+      : text("backtest.noUnavailableAssets");
+    const coverageRows = Object.entries(result?.rangesByAsset || {}).map(([asset, ranges]) => {
+      const label = text(`assets.${asset}.title`, assetMeta(asset).title);
+      const rangeText = ranges.length
+        ? ranges.map((range) => `${range.start}–${range.end} (${formatIRR(range.months)} ${text("backtest.months")})`).join(listSeparator())
+        : text("backtest.noRange");
+      return `<li><strong>${escapeHTML(label)}:</strong> ${escapeHTML(rangeText)}</li>`;
+    }).join("");
+    const overlap = result?.jointRanges || [];
+    const overlapText = overlap.length
+      ? overlap.map((range) => `${range.start}–${range.end} (${formatIRR(range.months)} ${text("backtest.months")})`).join(listSeparator())
+      : text("backtest.noRange");
+    const requested = Number(result?.requiredMonths) || Math.round((numberFromInput($("#simulation-horizon")?.value) || 5) * 12);
+    const longest = Number(result?.longestContinuousMonths) || 0;
+    const supportedYears = Math.min(50, Math.floor(longest / 12));
+    const currentYears = Math.max(1, Math.round(numberFromInput($("#simulation-horizon")?.value) || 5));
+    const durationOptions = Array.from({ length: Math.max(0, Math.min(supportedYears, currentYears - 1)) }, (_, index) => index + 1);
+    const recovery = durationOptions.length
+      ? `<div class="backtest-recovery"><label for="backtest-supported-horizon">${escapeHTML(text("backtest.chooseSupportedDuration"))}</label><select id="backtest-supported-horizon" required><option value="" selected disabled>${escapeHTML(text("backtest.selectDuration"))}</option>${durationOptions.map((years) => `<option value="${years}">${formatIRR(years)} ${escapeHTML(text(years === 1 ? "backtest.yearSingular" : "backtest.years"))}</option>`).join("")}</select><button class="secondary-button" type="button" data-backtest-horizon-run disabled>${escapeHTML(text("backtest.runSupportedDuration"))}</button></div>`
+      : `<p class="data-note">${escapeHTML(text("backtest.noSupportedDuration"))}</p>`;
+    const fetchFailure = result?.historyFetchError ? `<p class="data-note data-note-warning">${escapeHTML(text("backtest.historyFetchFailed"))}</p>` : "";
+    backtestEl.innerHTML = `<div class="empty-state"><strong>${escapeHTML(text("backtest.coverageFailureTitle"))}</strong><p>${escapeHTML(text("backtest.coverageReason"))} ${escapeHTML(result?.reason === "insufficient-continuous-overlap" ? text("backtest.reasonContinuous") : result?.reason === "insufficient-observed-history" ? text("backtest.reasonLength") : text("backtest.reasonUnavailable"))} ${escapeHTML(missingText)} ${escapeHTML(text("backtest.noAssumedSubstitute"))}</p><p>${escapeHTML(text("backtest.requiredFrequency"))}: ${escapeHTML(text("backtest.monthlyFrequency"))} · ${escapeHTML(text("backtest.requestedMonths"))}: ${formatIRR(requested)} · ${escapeHTML(text("backtest.longestOverlap"))}: ${formatIRR(longest)} ${escapeHTML(text("backtest.months"))}</p><p><strong>${escapeHTML(text("backtest.overlapRanges"))}:</strong> ${escapeHTML(overlapText)}</p>${coverageRows ? `<details><summary>${escapeHTML(text("backtest.assetRanges"))}</summary><ul>${coverageRows}</ul></details>` : ""}${recovery}${fetchFailure}</div>`;
+    const select = $("#backtest-supported-horizon");
+    const button = backtestEl.querySelector("[data-backtest-horizon-run]");
+    select?.addEventListener("change", () => {
+      if (button) button.disabled = !select.value;
+    });
+    button?.addEventListener("click", () => {
+      if (!select?.value) return;
+      $("#simulation-horizon").value = select.value;
+      void runBacktest();
+    });
     return;
   }
   const metric = (label, value, percent = false) => {
@@ -3386,44 +3841,49 @@ function renderBacktest(result) {
 function renderHistory() {
   const history = readHistory();
   appStore.setState({ history });
-  const portfolio = portfolioFromHistory(history, liveMarket);
-  const categories = PLAN_ASSET_KEYS.filter((key) => portfolio.categories[key].invested > 0)
-    .map((key) => {
-      const meta = assetMeta(key);
-      const category = portfolio.categories[key];
-      const gain = category.value - category.invested;
-      return `<div class="portfolio-row"><div><span class="asset-dot ${escapeHTML(meta.dotClass)}"></span><strong>${escapeHTML(meta.title)}</strong></div><div><strong>${escapeHTML(formatDisplayMoney(category.value))}</strong><small>${escapeHTML(text("history.current"))}</small></div><div class="${gain >= 0 ? "positive" : "negative"}"><strong>${gain >= 0 ? "+" : ""}${escapeHTML(formatDisplayMoney(gain))}</strong><small>${escapeHTML(text("history.gain"))}</small></div></div>`;
-    })
-    .join("");
+  const latest = history[0] || null;
+  const plannedAmount = latest?.plannedMonthlyAmount ?? latest?.total;
   historySummaryEl.innerHTML = [
-    [text("history.invested"), formatDisplayMoney(portfolio.totalInvested)],
-    [text("history.value"), formatDisplayMoney(portfolio.currentValue)],
-    [text("history.gain"), `${portfolio.gain >= 0 ? "+" : ""}${formatDisplayMoney(portfolio.gain)}`],
     [text("history.records"), String(history.length)],
+    [text("history.latestPlannedAmount"), latest ? formatDisplayMoney(plannedAmount) : "—"],
+    [text("history.lastSaved"), latest ? formatDate(latest.createdAt) : "—"],
+    [text("history.executionStatus"), latest ? text("history.notLinked") : "—"],
   ]
     .map(
       ([label, value]) =>
         `<div class="metric"><small>${escapeHTML(label)}</small><strong>${escapeHTML(value)}</strong></div>`,
     )
     .join("");
-  portfolioBreakdownEl.innerHTML = portfolio.totalInvested
-    ? categories
+  const targetWeights = latest?.targetWeights || latest?.weights || {};
+  const contributionWeights = latest?.contributionWeights || {};
+  const contributionAmounts = latest?.contributionAmounts || latest?.contributionPlan || {};
+  const planRows = PLAN_ASSET_KEYS.filter(
+    (key) => Number(targetWeights[key]) > 0 || Number(contributionAmounts[key]) > 0,
+  )
+    .map((key) => {
+      const meta = assetMeta(key);
+      return `<div class="portfolio-row"><div><span class="asset-dot ${escapeHTML(meta.dotClass)}"></span><strong>${escapeHTML(meta.title)}</strong><small>${escapeHTML(text("allocation.targetPortfolioWeight"))}: ${formatPercent(targetWeights[key] || 0)}</small></div><div><strong>${escapeHTML(formatDisplayMoney(contributionAmounts[key] || 0))}</strong><small>${escapeHTML(text("allocation.contributionAmount"))} · ${formatPercent(contributionWeights[key] || 0)} ${escapeHTML(text("allocation.contributionWeight"))}</small></div></div>`;
+    })
+    .join("");
+  portfolioBreakdownEl.innerHTML = latest
+    ? planRows
     : `<div class="empty-state">${escapeHTML(text("history.emptyBreakdown"))}</div>`;
-  const chronological = history.slice().reverse();
-  const chartPoints = chronological.map((entry, index) => ({
-    nominal: portfolioFromHistory(chronological.slice(0, index + 1), liveMarket).currentValue,
-  }));
-  renderLineChart(historyChartEl, chartPoints, "nominal", text("history.chart"));
+  const chartPoints = history
+    .slice()
+    .reverse()
+    .map((entry) => ({ nominal: entry.plannedMonthlyAmount ?? entry.total }));
+  renderLineChart(historyChartEl, chartPoints, "nominal", text("history.plannedAmountChart"));
   historyListEl.innerHTML = history.length
     ? history
         .slice(0, 15)
         .map(
           (entry) =>
-            `<div class="history-item"><div><strong>${formatDate(entry.createdAt)}</strong><small>${formatPercent(entry.contributionRate)} ${escapeHTML(text("history.separator"))} ${escapeHTML(text("history.monthly"))}</small></div><div><strong>${escapeHTML(formatDisplayMoney(entry.total))}</strong><small>${escapeHTML(text("history.saved"))}</small></div></div>`,
+            `<div class="history-item"><div><strong>${escapeHTML(text("history.planVersion"))} ${formatIRR(entry.planVersion || 1)}</strong><small>${formatDate(entry.createdAt)} · ${escapeHTML(text("history.notLinked"))}</small></div><div><strong>${escapeHTML(formatDisplayMoney(entry.plannedMonthlyAmount ?? entry.total))}</strong><small>${escapeHTML(text("history.latestPlannedAmount"))} · ${formatPercent(entry.contributionRate)} ${escapeHTML(text("history.separator"))} ${escapeHTML(text("history.monthly"))}</small></div></div>`,
         )
         .join("")
     : `<div class="empty-state">${escapeHTML(text("history.empty"))}</div>`;
   renderHistoricalComparison();
+  renderBackupStatus();
 }
 
 function historyAssetDefinitions() {
@@ -3541,22 +4001,17 @@ function renderHistoricalComparison() {
     currency: historyComparisonCurrency,
     fxPoints: historyComparisonData?.assets?.dollar?.points || [],
   });
-  const unitFor = (assetId) =>
-    assetId === "dollar"
-      ? "تومان برای هر دلار"
-      : assetId === "bourseIndex"
-        ? "نقطه"
-        : historyComparisonCurrency === "USD"
-          ? "دلار"
-          : "تومان";
+  const unitFor = (assetId) => {
+    const currency = currencyName(historyComparisonCurrency);
+    const instrument = INSTRUMENT_REGISTRY[assetId];
+    if (assetId === "bourseIndex") return text("portfolio.units.bourseIndex", "points");
+    if (assetId === "dollar") return `${currency}/${text("portfolio.units.currency", "USD")}`;
+    if (instrument?.unit === "coin") return `${currency}/${text(`portfolio.units.${assetId}`, assetId)}`;
+    if (instrument?.unit === "gram") return `${currency}/${text("portfolio.units.gold", "g")}`;
+    return currency;
+  };
   const historyPriceLabel = (value, assetId) => {
-    const unit =
-      assetId === "bourseIndex"
-        ? text("history.indexPoints", "نقطه")
-        : assetId === "dollar"
-          ? `${currencyName("TOMAN")} / ${currencyName("USD")}`
-          : currencyName(historyComparisonCurrency);
-    return `${formatIRR(value)} ${unit}`;
+    return `${formatIRR(value)} ${unitFor(assetId)}`;
   };
   if (historyComparisonMode === "price") {
     chart.innerHTML = comparison.series.length
@@ -3565,6 +4020,7 @@ function renderHistoricalComparison() {
             (item) =>
               `<section class="history-price-chart"><h4>${escapeHTML(item.name)} · ${escapeHTML(unitFor(item.id))}</h4><div>${lineChartMarkup(
                 {
+                  ...chartA11yProps(),
                   series: [
                     { ...item, points: item.points.map((point) => ({ ...point, label: formatDate(point.date) })) },
                   ],
@@ -3583,6 +4039,7 @@ function renderHistoricalComparison() {
       points: item.points.map((point) => ({ ...point, label: formatDate(point.date) })),
     }));
     chart.innerHTML = lineChartMarkup({
+      ...chartA11yProps(),
       series,
       ariaLabel: "مقایسه‌ی بازده درصدی دارایی‌های بازار",
       emptyLabel: "برای این انتخاب‌ها، تاریخچه‌ی کافی در بازه وجود ندارد.",
@@ -3826,12 +4283,11 @@ function bindChartTooltips() {
 
 function calculatePlan(inputs) {
   const assetKeys = selectedPlanAssetKeys(inputs.selectedAssets);
-  const history = readHistory();
-  const portfolio = portfolioFromHistory(history, liveMarket);
   const ledger = calculatePortfolio(readPortfolio(), liveMarket || {});
-  const currentHoldings = ledger.transactions.length
-    ? Object.fromEntries(PLAN_ASSET_KEYS.map((asset) => [asset, Math.max(0, Number(ledger.values[asset]?.value) || 0)]))
-    : Object.fromEntries(PLAN_ASSET_KEYS.map((key) => [key, portfolio.categories[key].value]));
+  const valuationComplete = !ledger.transactions.length || ledger.missingPrices.length === 0;
+  const currentHoldings = Object.fromEntries(
+    PLAN_ASSET_KEYS.map((asset) => [asset, valuationComplete ? Math.max(0, Number(ledger.values[asset]?.value) || 0) : 0]),
+  );
   const recommendation = recommendAllocation(inputs.profile, {
     enabledAssets: inputs.selectedAssets,
     assumptions: modelSettings?.assumptions || DEFAULT_ASSUMPTIONS,
@@ -3852,11 +4308,18 @@ function calculatePlan(inputs) {
       transactionCosts: modelSettings?.transactionCosts || DEFAULT_TRANSACTION_COSTS,
     },
   );
+  if (!valuationComplete) {
+    contribution.currentWeights = null;
+    contribution.drift = null;
+    contribution.deviationPercentagePoints = null;
+    contribution.usesTargetDrift = false;
+    contribution.dataStatus = "incomplete";
+  }
   contribution.excludedInvestableTotal = ledger.transactions.length
     ? Math.max(0, ledger.investableTotal - Object.values(currentHoldings).reduce((total, value) => total + value, 0))
     : 0;
   contribution.excludedMissingCount = ledger.transactions.length ? ledger.missingPrices.length : 0;
-  return { inputs, recommendation, contribution, portfolio, currentHoldings, assetKeys };
+  return { inputs, recommendation, contribution, portfolio: ledger, currentHoldings, assetKeys };
 }
 
 function cancelAnalysisWorker() {
@@ -3903,7 +4366,7 @@ function renderPlanOutput(plan) {
     `profileLabels.${inputs.profile.riskTolerance}`,
     text("profileLabels.conservative"),
   );
-  allocationListEl.innerHTML = allocationRows(recommendation.weights, contribution.amounts, plan.assetKeys, true);
+  allocationListEl.innerHTML = allocationRows(recommendation.weights, plan.assetKeys, true);
   renderContributionPlan(contribution, plan.assetKeys);
   renderReasons(inputs.profile, portfolio);
   const saveButton = $("#save-plan-result");
@@ -3939,17 +4402,11 @@ function renderPlan({ scrollIntoView = true, validate = true } = {}) {
 
 function saveHistory(inputs, recommendation, contribution) {
   const history = readHistory();
-  const entry = {
-    createdAt: new Date().toISOString(),
-    salary: inputs.salary,
-    contributionRate: inputs.contributionRate,
-    total: inputs.monthlyContribution,
-    weights: recommendation.weights,
-    contributionPlan: contribution.amounts,
-    profile: inputs.profile,
-    selectedAssets: inputs.selectedAssets,
-    marketSnapshot: marketSnapshot(liveMarket),
-  };
+  const entry = createPlanHistoryRecord(
+    { inputs, recommendation, contribution, marketSnapshot: marketSnapshot(liveMarket) },
+    history,
+  );
+  if (!entry) return false;
   return writeJson(HISTORY_KEY, mergeHistory([entry], history, HISTORY_LIMIT));
 }
 
@@ -4058,14 +4515,45 @@ function updatePlanWeights(event) {
 
 function handleMarketAssetSubmit(event) {
   event.preventDefault();
+  clearPortfolioFormError("#portfolio-market-asset-form");
   let assetId = $("#portfolio-market-asset").value;
-  const quantity = Math.max(0, numberFromInput($("#portfolio-market-quantity").value));
+  const quantityInput = $("#portfolio-market-quantity").value.trim();
+  const quantity = numberFromInput(quantityInput);
   const acquisitionDate = $("#portfolio-market-date").value;
   const acquisitionIso = dateTimeInputToIso(acquisitionDate);
   const newTitle = $("#portfolio-new-stock-title").value.trim();
-  const enteredPrice = Math.max(0, numberFromInput($("#portfolio-market-acquisition-price").value));
-  if ((!assetId && !newTitle) || !(quantity > 0) || !acquisitionIso) {
-    setPortfolioStatus("دارایی و مقدار معتبر وارد کن.", "warning");
+  const acquisitionPriceInput = $("#portfolio-market-acquisition-price").value.trim();
+  const enteredPrice = numberFromInput(acquisitionPriceInput);
+  if (!assetId && !newTitle) {
+    showPortfolioFormError(
+      "#portfolio-market-asset-form",
+      "#portfolio-market-asset",
+      "portfolio.transactionErrors.invalidDetails",
+    );
+    return;
+  }
+  if (!quantityInput || !(quantity > 0)) {
+    showPortfolioFormError(
+      "#portfolio-market-asset-form",
+      "#portfolio-market-quantity",
+      "portfolio.transactionErrors.invalidQuantity",
+    );
+    return;
+  }
+  if (!acquisitionIso) {
+    showPortfolioFormError(
+      "#portfolio-market-asset-form",
+      "#portfolio-market-date",
+      "portfolio.transactionErrors.invalidDate",
+    );
+    return;
+  }
+  if (acquisitionPriceInput && !(enteredPrice > 0)) {
+    showPortfolioFormError(
+      "#portfolio-market-asset-form",
+      "#portfolio-market-acquisition-price",
+      "portfolio.transactionErrors.invalidAmount",
+    );
     return;
   }
   const now = new Date().toISOString();
@@ -4079,7 +4567,11 @@ function handleMarketAssetSubmit(event) {
     else {
       const created = createPortfolioAsset(portfolio, { title: newTitle, kind: "stock", unit: "share" }, now);
       if (!created.asset) {
-        setPortfolioStatus(text("portfolio.invalidStock"), "warning");
+        showPortfolioFormError(
+          "#portfolio-market-asset-form",
+          "#portfolio-new-stock-title",
+          "portfolio.invalidStock",
+        );
         return;
       }
       portfolio = created.portfolio;
@@ -4088,13 +4580,13 @@ function handleMarketAssetSubmit(event) {
     }
   }
   const marketPrice = createdCustom ? null : marketEntryPriceAt(assetId, acquisitionDate);
-  const unitPrice = enteredPrice > 0 ? enteredPrice : marketPrice;
-  if (!(Number.isFinite(Number(unitPrice)) && Number(unitPrice) > 0)) {
-    setPortfolioStatus("برای این تاریخ قیمت معتبر در دسترس نیست؛ بهای واقعی هر واحد را وارد کن.", "warning");
-    $("#portfolio-market-acquisition-price").focus();
-    return;
-  }
-  const isBackdated = new Date(acquisitionIso).getTime() < Date.now() - 60_000;
+  const enteredAcquisitionPrice = enteredPrice > 0 ? enteredPrice : undefined;
+  const useReferenceEstimate =
+    !enteredAcquisitionPrice &&
+    $("#portfolio-market-use-reference-estimate")?.checked === true &&
+    Number.isFinite(Number(marketPrice)) &&
+    Number(marketPrice) > 0;
+  const isBackdated = acquisitionDate.slice(0, 10) < localDateTimeValue().slice(0, 10);
   if (
     isBackdated &&
     !window.confirm("این تراکنش با زمان گذشته ثبت می‌شود و روی محاسبات تاریخی پرتفوی اثر دارد. ادامه می‌دهی؟")
@@ -4106,7 +4598,13 @@ function handleMarketAssetSubmit(event) {
       type,
       assetId,
       quantity,
-      unitPrice,
+      unitPrice: enteredAcquisitionPrice,
+      costBasisStatus: enteredAcquisitionPrice
+        ? "confirmed"
+        : useReferenceEstimate
+          ? "estimated"
+          : "unknown",
+      ...(useReferenceEstimate ? { unitPrice: marketPrice } : {}),
       source: "market-asset-entry",
       note: "Market asset entry",
       date: acquisitionIso,
@@ -4116,7 +4614,11 @@ function handleMarketAssetSubmit(event) {
     portfolio,
   );
   if (!transaction) {
-    setPortfolioStatus(text("portfolio.validation"), "warning");
+    showPortfolioFormError(
+      "#portfolio-market-asset-form",
+      "#portfolio-market-quantity",
+      "portfolio.transactionErrors.invalidDetails",
+    );
     return;
   }
   const appended = appendTransactions(portfolio, [transaction], {
@@ -4124,12 +4626,22 @@ function handleMarketAssetSubmit(event) {
     affectsHistory: isBackdated,
     detail: assetId,
   });
-  if (!appended.validation.valid || !writePortfolio(appended.portfolio)) {
+  if (!appended.validation.valid) {
+    const errorKey =
+      appended.validation.errors[0]?.code === "negative-holding"
+        ? "portfolio.transactionErrors.insufficientHolding"
+        : "portfolio.transactionErrors.invalidDetails";
+    showPortfolioFormError("#portfolio-market-asset-form", "#portfolio-market-quantity", errorKey);
+    return;
+  }
+  if (!writePortfolio(appended.portfolio)) {
     setPortfolioStatus(text("portfolio.validation"), "warning");
     return;
   }
+  clearPortfolioFormError("#portfolio-market-asset-form");
   event.target.reset();
   $("#portfolio-market-date").value = localDateTimeValue();
+  $("#portfolio-market-use-reference-estimate").checked = false;
   renderPortfolio();
   $("#portfolio-section").open = true;
   setPortfolioStatus("موجودی در دفتر ثبت شد. این ثبت هیچ سفارش خرید یا فروش واقعی ارسال نمی‌کند.", "success");
@@ -4137,11 +4649,33 @@ function handleMarketAssetSubmit(event) {
 
 function handleManualQuoteSubmit(event) {
   event.preventDefault();
+  clearPortfolioFormError("#manual-quote-form");
   const assetId = $("#manual-quote-asset").value;
-  const price = Math.max(0, numberFromInput($("#manual-quote-price").value));
+  const priceInput = $("#manual-quote-price").value.trim();
+  const price = numberFromInput(priceInput);
   const observedAt = dateTimeInputToIso($("#manual-quote-date").value);
-  if (!assetId || !(price > 0) || !observedAt || new Date(observedAt).getTime() > Date.now() + 60_000) {
-    setPortfolioStatus("دارایی، قیمت مثبت و زمان مشاهده‌ی معتبر وارد کن.", "warning");
+  if (!assetId) {
+    showPortfolioFormError(
+      "#manual-quote-form",
+      "#manual-quote-asset",
+      "portfolio.transactionErrors.invalidDetails",
+    );
+    return;
+  }
+  if (!priceInput || !(price > 0)) {
+    showPortfolioFormError(
+      "#manual-quote-form",
+      "#manual-quote-price",
+      "portfolio.transactionErrors.invalidAmount",
+    );
+    return;
+  }
+  if (!observedAt || new Date(observedAt).getTime() > Date.now() + 60_000) {
+    showPortfolioFormError(
+      "#manual-quote-form",
+      "#manual-quote-date",
+      "portfolio.transactionErrors.invalidDate",
+    );
     return;
   }
   const portfolio = readPortfolio();
@@ -4160,6 +4694,7 @@ function handleManualQuoteSubmit(event) {
     setPortfolioStatus("قیمت ذخیره نشد؛ فضای ذخیره‌سازی مرورگر را بررسی کن.", "warning");
     return;
   }
+  clearPortfolioFormError("#manual-quote-form");
   event.target.reset();
   $("#manual-quote-date").value = localDateTimeValue();
   renderPortfolio();
@@ -4169,56 +4704,166 @@ function handleManualQuoteSubmit(event) {
 function updateAdvancedTransactionFields() {
   const type = $("#advanced-type").value;
   const transfer = type === "TRANSFER";
+  const basisCorrection = type === "BASIS_CORRECTION";
   const cashFlow = ["DEPOSIT", "WITHDRAWAL"].includes(type);
-  const quantityType = ["OPENING", "BUY", "SELL", "ADJUSTMENT", "TRANSFER"].includes(type);
-  $("#advanced-quantity-label").textContent = quantityType ? text("portfolio.quantity") : text("portfolio.amount");
+  const saleDisclosure = $("#advanced-sale-proceeds-note");
+  if (saleDisclosure) {
+    saleDisclosure.hidden = type !== "SELL";
+    saleDisclosure.textContent = text("portfolio.saleProceedsDisclosure");
+  }
+  const quantityType = ["OPENING", "BUY", "SELL", "ADJUSTMENT", "TRANSFER", "BASIS_CORRECTION"].includes(type);
+  $("#advanced-quantity-label").textContent =
+    type === "ADJUSTMENT"
+      ? text("portfolio.quantityAdjustment")
+      : basisCorrection
+        ? text("portfolio.quantityAtCorrection")
+        : quantityType
+          ? text("portfolio.quantity")
+          : text("portfolio.amount");
   $("#advanced-quantity").disabled = !quantityType;
-  $("#advanced-amount").disabled = quantityType && type !== "TRANSFER";
+  $("#advanced-quantity").required = ["OPENING", "BUY", "SELL", "TRANSFER", "BASIS_CORRECTION", "ADJUSTMENT"].includes(type);
+  $("#advanced-amount").disabled = quantityType && type !== "TRANSFER" && !basisCorrection;
+  $("#advanced-amount").required = basisCorrection || cashFlow;
+  $("#advanced-target-quantity").required = transfer;
+  $("#advanced-unit-price").required = false;
+  const amountLabel = $("#advanced-amount").previousElementSibling;
+  if (amountLabel)
+    amountLabel.textContent = basisCorrection
+      ? text("portfolio.actualTotalBasis")
+      : text("portfolio.amount");
+  const dateLabel = $("#advanced-date-label");
+  if (dateLabel) {
+    const dateLabelKey =
+      type === "OPENING"
+        ? "portfolio.dateOpening"
+        : type === "BUY"
+          ? "portfolio.datePurchase"
+          : type === "SELL"
+            ? "portfolio.dateSale"
+            : ["ADJUSTMENT", "BASIS_CORRECTION"].includes(type)
+              ? "portfolio.dateCorrection"
+              : "portfolio.dateTransaction";
+    dateLabel.textContent = text(dateLabelKey);
+  }
+  const unitPriceLabel = $("#advanced-unit-price-label");
+  if (unitPriceLabel)
+    unitPriceLabel.textContent = type === "ADJUSTMENT" ? text("portfolio.correctionUnitCost") : text("portfolio.unitPrice");
+  $("#advanced-unit-price").placeholder =
+    type === "ADJUSTMENT" ? text("portfolio.correctionCostOptional") : text("portfolio.marketPriceFallback");
   $("#advanced-asset").disabled = cashFlow;
   if (cashFlow) $("#advanced-asset").value = "cash";
   $("#advanced-target-asset").closest(".field").classList.toggle("is-hidden", !transfer);
   $("#advanced-target-quantity").closest(".field").classList.toggle("is-hidden", !transfer);
   $("#advanced-unit-price")
     .closest(".field")
-    .classList.toggle("is-hidden", !quantityType || type === "TRANSFER");
+    .classList.toggle("is-hidden", !quantityType || type === "TRANSFER" || basisCorrection);
+}
+
+function clearAdvancedTransactionError() {
+  const form = $("#advanced-transaction-form");
+  form?.querySelectorAll("input").forEach((input) => {
+    input.setCustomValidity("");
+    input.removeAttribute("aria-invalid");
+  });
+  const error = $("#advanced-transaction-error");
+  if (error) {
+    error.hidden = true;
+    error.textContent = "";
+  }
+}
+
+function showAdvancedTransactionError(field, messageKey) {
+  clearAdvancedTransactionError();
+  const input = field ? $(field) : null;
+  const message = text(messageKey);
+  if (input) {
+    input.setCustomValidity(message);
+    input.setAttribute("aria-invalid", "true");
+  }
+  const error = $("#advanced-transaction-error");
+  if (error) {
+    error.textContent = message;
+    error.hidden = false;
+  }
+  input?.focus();
+  input?.reportValidity();
 }
 
 function handleAdvancedTransactionSubmit(event) {
   event.preventDefault();
+  clearAdvancedTransactionError();
   const type = $("#advanced-type").value;
-  const date = $("#advanced-date").value || localDateTimeValue();
+  const date = $("#advanced-date").value;
+  if (!date || !dateTimeInputToIso(date)) {
+    showAdvancedTransactionError("#advanced-date", "portfolio.transactionErrors.invalidDate");
+    return;
+  }
+  const quantityTypes = ["OPENING", "BUY", "SELL", "ADJUSTMENT", "TRANSFER", "BASIS_CORRECTION"];
+  const amountTypes = ["DIVIDEND", "DEPOSIT", "WITHDRAWAL", "BASIS_CORRECTION"];
+  const quantity = numberFromInput($("#advanced-quantity").value);
+  const amount = numberFromInput($("#advanced-amount").value);
+  if (quantityTypes.includes(type) && (!$("#advanced-quantity").value.trim() || !Number.isFinite(quantity) || (type !== "ADJUSTMENT" && quantity <= 0) || (type === "ADJUSTMENT" && quantity === 0))) {
+    showAdvancedTransactionError("#advanced-quantity", "portfolio.transactionErrors.invalidQuantity");
+    return;
+  }
+  if (amountTypes.includes(type) && (!$("#advanced-amount").value.trim() || !Number.isFinite(amount) || amount <= 0)) {
+    showAdvancedTransactionError("#advanced-amount", "portfolio.transactionErrors.invalidAmount");
+    return;
+  }
+  if (type === "TRANSFER" && numberFromInput($("#advanced-target-quantity").value) <= 0) {
+    showAdvancedTransactionError("#advanced-target-quantity", "portfolio.transactionErrors.invalidQuantity");
+    return;
+  }
   const now = new Date().toISOString();
-  const dateTimestamp = new Date(date).getTime();
   const input = {
     type,
     assetId: ["DEPOSIT", "WITHDRAWAL"].includes(type) ? "cash" : $("#advanced-asset").value,
     targetAssetId: $("#advanced-target-asset").value,
     date,
-    quantity: ["OPENING", "BUY", "SELL", "ADJUSTMENT", "TRANSFER"].includes(type)
-      ? numberFromInput($("#advanced-quantity").value)
-      : undefined,
+    quantity: quantityTypes.includes(type) ? quantity : undefined,
     targetQuantity: numberFromInput($("#advanced-target-quantity").value),
-    unitPrice: numberFromInput($("#advanced-unit-price").value) || undefined,
-    amount: ["DIVIDEND", "DEPOSIT", "WITHDRAWAL"].includes(type)
-      ? numberFromInput($("#advanced-amount").value)
-      : undefined,
+    unitPrice: type === "BASIS_CORRECTION" ? undefined : numberFromInput($("#advanced-unit-price").value) || undefined,
+    amount: amountTypes.includes(type) ? amount : undefined,
     fee: numberFromInput($("#advanced-fee").value),
     note: $("#advanced-note").value,
+    costBasisStatus:
+      type === "ADJUSTMENT"
+        ? numberFromInput($("#advanced-unit-price").value) > 0
+          ? "confirmed"
+          : "unknown"
+        : undefined,
   };
   const transaction = createTransaction(input, liveMarket || {}, now, readPortfolio());
   if (!transaction) {
-    setPortfolioStatus(text("portfolio.validation"), "warning");
+    showAdvancedTransactionError(
+      type === "SELL" ? "#advanced-unit-price" : type === "BASIS_CORRECTION" ? "#advanced-amount" : "#advanced-quantity",
+      type === "SELL" ? "portfolio.transactionErrors.sellPriceRequired" : "portfolio.transactionErrors.invalidDetails",
+    );
     return;
   }
-  const affectsHistory = type === "ADJUSTMENT" || dateTimestamp < Date.now() - 60_000;
+  const affectsHistory =
+    ["ADJUSTMENT", "BASIS_CORRECTION"].includes(type) || date.slice(0, 10) < localDateTimeValue().slice(0, 10);
   if (affectsHistory && !window.confirm(text("portfolio.confirmHistoryChange"))) return;
-  const appended = appendTransactions(readPortfolio(), [transaction], {
+  const currentPortfolio = readPortfolio();
+  const appended = appendTransactions(currentPortfolio, [transaction], {
     action: "add-advanced-transaction",
     affectsHistory,
     detail: type,
   });
-  if (!appended.validation.valid || !writePortfolio(appended.portfolio)) {
-    setPortfolioStatus(text("portfolio.validation"), "warning");
+  if (!appended.validation.valid) {
+    const first = appended.validation.errors[0];
+    if (first?.code === "negative-holding")
+      showAdvancedTransactionError(
+        type === "WITHDRAWAL" ? "#advanced-amount" : "#advanced-quantity",
+        "portfolio.transactionErrors.insufficientHolding",
+      );
+    else if (first?.code === "basis-quantity-mismatch")
+      showAdvancedTransactionError("#advanced-quantity", "portfolio.transactionErrors.basisQuantityMismatch");
+    else showAdvancedTransactionError("#advanced-quantity", "portfolio.transactionErrors.invalidDetails");
+    return;
+  }
+  if (!writePortfolio(appended.portfolio)) {
+    setPortfolioStatus(text("portfolio.storageFailed"), "warning");
     return;
   }
   event.target.reset();
@@ -4289,24 +4934,45 @@ function clearAllLocalData() {
 
 function exportHistory() {
   const records = readHistory();
-  const portfolio = readPortfolio();
-  const hasPortfolio = activePortfolioVersion(portfolio).transactions.length > 0;
-  if (!records.length && !hasPortfolio) {
+  if (!records.length) {
     setTransferStatus(text("history.transfer.empty"), "warning");
     return;
   }
-  const payload = JSON.stringify(createHistoryExport(records, portfolio), null, 2);
+  const payload = JSON.stringify(createHistoryExport(records), null, 2);
   const blob = new Blob([payload], { type: "application/json;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `synthora-history-${new Date().toISOString().slice(0, 10)}.json`;
+  link.download = `synthora-plans-${new Date().toISOString().slice(0, 10)}.json`;
   document.body.appendChild(link);
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-  const portfolioLabel = hasPortfolio ? ` ${text("history.separator")} ${text("portfolio.exported")}` : "";
-  setTransferStatus(`${text("history.transfer.exported")} ${records.length}${portfolioLabel}`, "success");
+  setTransferStatus(`${text("backup.planExported")} ${formatIRR(records.length)}`, "success");
+}
+
+function exportPersonalBackup() {
+  try {
+    const snapshot = currentSyncSnapshot();
+    const backup = createPersonalBackup(snapshot);
+    const payload = JSON.stringify(backup, null, 2);
+    const blob = new Blob([payload], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `synthora-personal-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    const requestedAt = new Date().toISOString();
+    writeStatusTimestamp(LAST_BACKUP_REQUEST_KEY, requestedAt);
+    renderBackupStatus();
+    setTransferStatus(text("backup.exportGenerated"), "success");
+  } catch (error) {
+    const key = error?.message === "sync.localDataUnavailable" ? "backup.localUnavailable" : "backup.exportFailed";
+    setTransferStatus(text(key), "warning");
+  }
 }
 
 async function importHistoryFile(event) {
@@ -4354,6 +5020,52 @@ async function importHistoryFile(event) {
   } catch (error) {
     const key =
       error && error.message === "storage-failed" ? "history.transfer.storageFailed" : "history.transfer.invalid";
+    setTransferStatus(text(key), "warning");
+  }
+}
+
+async function importPersonalBackupFile(event) {
+  const input = event.target;
+  const file = input.files && input.files[0];
+  input.value = "";
+  if (!file) return;
+  if (file.size > 2 * 1024 * 1024) {
+    setTransferStatus(text("history.transfer.tooLarge"), "warning");
+    return;
+  }
+  try {
+    const parsed = parsePersonalBackup(JSON.parse(await file.text()));
+    const profileSummary = parsed.profile ? text("backup.profilePresent") : text("backup.profileAbsent");
+    const confirmMessage = `${text("backup.restoreConfirm")}\n\n${text("backup.includes")}: ${formatIRR(parsed.history.length)} ${text("backup.planCount")}, ${formatIRR(activePortfolioVersion(parsed.portfolio).transactions.length)} ${text("backup.transactionCount")}, ${profileSummary}, ${text("backup.modelSettings")}, ${text("backup.preferences")}.\n${text("backup.excludes")}: ${text("backup.secrets")}, ${text("backup.marketCache")}, ${text("backup.syncCredentials")}.\n\n${text("backup.replaceEffect")}`;
+    if (!window.confirm(confirmMessage)) return;
+    const writes = [
+      [PROFILE_KEY, parsed.profile || {}],
+      [HISTORY_KEY, parsed.history],
+      ["investment-plan-history-v3", []],
+      [PORTFOLIO_KEY, parsed.portfolio],
+      [SETTINGS_KEY, parsed.modelSettings],
+      [UI_PREFERENCES_KEY, parsed.preferences],
+    ];
+    if (!writeJsonBatch(localStorage, writes)) throw new Error("storage-failed");
+    storageWarning = false;
+    modelSettings = normalizeModelSettings(parsed.modelSettings);
+    uiPreferences = writeUiPreferences(parsed.preferences);
+    applyUiPreferences(uiPreferences);
+    document.querySelector("#plan-form")?.reset();
+    lastPlan = null;
+    restoreProfile();
+    syncUiPreferenceControls();
+    await loadCopy();
+    renderSettingsAssumptions();
+    applyModelSettingsToSimulation();
+    renderHistory();
+    renderPortfolio();
+    renderDashboard();
+    renderMarket(liveMarket, lastKnownMarket);
+    renderBackupStatus();
+    setTransferStatus(text("backup.imported"), "success");
+  } catch (error) {
+    const key = error?.message === "storage-failed" ? "history.transfer.storageFailed" : "backup.invalid";
     setTransferStatus(text(key), "warning");
   }
 }
@@ -4505,6 +5217,7 @@ async function loadSimulationHistory(inputs) {
 
 async function runIndependentSimulation(event) {
   event.preventDefault();
+  if (!validateNumericFields(event.currentTarget, { report: true })) return;
   const inputs = getSimulationInputs();
   if (!inputs.valid) {
     simulationSummaryEl.innerHTML = `<div class="empty-state">حداقل یک وزن مثبت و افق بین ۱ تا ۵۰ سال وارد کن.</div>`;
@@ -4643,10 +5356,24 @@ async function loadCopy() {
     copy = fallbackCopy;
   }
   if (copy?.pageTitle) document.title = copy.pageTitle;
+  renderPortfolioHoldingsHeadings();
   translateVisibleCopy();
 }
 
 function bindEvents() {
+  document.addEventListener("keydown", containAssetDrawerTab, true);
+  $$('[data-settings-focus]').forEach((button) =>
+    button.addEventListener("click", () => {
+      const target = document.getElementById(button.dataset.settingsFocus || "");
+      target?.scrollIntoView({ behavior: "auto", block: "start" });
+      target?.focus({ preventScroll: true });
+    }),
+  );
+  [$("#simulation-form"), $("#settings-model-form")].filter(Boolean).forEach((form) => {
+    form.addEventListener("input", (event) => {
+      if (event.target.matches('input[type="number"]')) event.target.setCustomValidity("");
+    });
+  });
   syncUiPreferenceControls();
   $("#settings-locale")?.addEventListener("change", (event) => void changeLocale(event.currentTarget.value));
   $("#settings-display-currency")?.addEventListener("change", (event) => {
@@ -4685,6 +5412,16 @@ function bindEvents() {
   });
   $("#save-plan-result")?.addEventListener("click", savePlanPreview);
   allocationListEl?.addEventListener("change", updatePlanWeights);
+  $$('[data-add-existing-holdings]').forEach((button) =>
+    button.addEventListener("click", () => {
+      navigationController.goTo("portfolio");
+      const section = $("#portfolio-section");
+      if (section) section.open = true;
+      const assetSelect = $("#portfolio-market-asset");
+      assetSelect?.scrollIntoView({ behavior: "smooth", block: "center" });
+      assetSelect?.focus();
+    }),
+  );
   $$("[data-go-view]").forEach((button) =>
     button.addEventListener("click", () => navigationController.goTo(button.dataset.goView)),
   );
@@ -4768,12 +5505,39 @@ function bindEvents() {
   $("#history-file").addEventListener("change", importHistoryFile);
   $("#portfolio-market-asset-form")?.addEventListener("submit", handleMarketAssetSubmit);
   $("#manual-quote-form")?.addEventListener("submit", handleManualQuoteSubmit);
+  $("#portfolio-market-asset-form")?.addEventListener("input", () =>
+    clearPortfolioFormError("#portfolio-market-asset-form"),
+  );
+  $("#portfolio-market-asset-form")?.addEventListener("change", () =>
+    clearPortfolioFormError("#portfolio-market-asset-form"),
+  );
+  $("#manual-quote-form")?.addEventListener("input", () => clearPortfolioFormError("#manual-quote-form"));
+  $("#manual-quote-form")?.addEventListener("change", () => clearPortfolioFormError("#manual-quote-form"));
   $("#portfolio-new-stock-title")?.addEventListener("input", updateMarketEntryAvailability);
   $("#portfolio-market-asset")?.addEventListener("change", () => populatePortfolioAssetOptions());
   $("#portfolio-market-date")?.addEventListener("input", updateMarketEntryAvailability);
   $("#portfolio-market-date")?.addEventListener("change", updateMarketEntryAvailability);
   $("#advanced-transaction-form").addEventListener("submit", handleAdvancedTransactionSubmit);
-  $("#advanced-type").addEventListener("change", updateAdvancedTransactionFields);
+  $("#advanced-type").addEventListener("change", () => {
+    clearAdvancedTransactionError();
+    updateAdvancedTransactionFields();
+  });
+  $("#advanced-transaction-form")?.addEventListener("input", (event) => {
+    if (event.target instanceof HTMLInputElement && event.target.validity.customError) {
+      event.target.setCustomValidity("");
+      event.target.removeAttribute("aria-invalid");
+      const error = $("#advanced-transaction-error");
+      if (error) {
+        error.hidden = true;
+        error.textContent = "";
+      }
+    }
+  });
+  $("#asset-detail-drawer")?.addEventListener("close", (event) => {
+    const drawer = event.currentTarget;
+    if (drawer.dataset.restoreFocus !== "false" && assetDrawerOpener instanceof HTMLElement) assetDrawerOpener.focus();
+    drawer.dataset.restoreFocus = "true";
+  });
   $("#settings-model-form")?.addEventListener("submit", saveModelSettingsForm);
   $("#refresh-inflation")?.addEventListener("click", refreshInflationAssumption);
   $("#provider-key-form")?.addEventListener("submit", saveProviderApiKey);
@@ -4833,9 +5597,9 @@ function bindEvents() {
     renderDashboard();
     setTransferStatus("داده بازار ذخیره‌شده حذف شد.", "success");
   });
-  $("#settings-export-data").addEventListener("click", exportHistory);
+  $("#settings-export-data").addEventListener("click", exportPersonalBackup);
   $("#settings-import-data").addEventListener("click", () => $("#settings-file").click());
-  $("#settings-file").addEventListener("change", importHistoryFile);
+  $("#settings-file").addEventListener("change", importPersonalBackupFile);
   $("#settings-reset-all").addEventListener("click", () => {
     if (
       window.confirm(
@@ -4844,7 +5608,18 @@ function bindEvents() {
     )
       clearAllLocalData();
   });
-  $("#asset-drawer-close")?.addEventListener("click", () => $("#asset-detail-drawer")?.close());
+  $("#asset-drawer-close")?.addEventListener("click", () => closeAssetDrawer());
+  $("#asset-drawer-content")?.addEventListener("click", (event) => {
+    const action = event.target.closest("[data-correct-holding], [data-basis-correction], [data-edit-manual-quote]");
+    if (!action) return;
+    const assetId = action.dataset.correctHolding || action.dataset.basisCorrection || action.dataset.editManualQuote;
+    const mode = action.dataset.basisCorrection
+      ? "basis"
+      : action.dataset.editManualQuote
+        ? "manual-quote"
+        : "quantity";
+    openAssetScopedEditor(assetId, mode);
+  });
   $("#portfolio-allocation")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-portfolio-asset]");
     if (button) openAssetDrawer(button.dataset.portfolioAsset);
@@ -4902,37 +5677,51 @@ function bindEvents() {
 }
 
 async function init() {
-  await loadCopy();
-  syncUiPreferenceControls();
-  migrateStoredCurrencyToToman();
-  modelSettings = loadModelSettings();
-  restoreProviderApiKey();
-  renderSimulationWeightInputs();
-  renderSettingsAssumptions();
-  applyModelSettingsToSimulation();
-  restoreProfile();
-  $("#contribution-output").textContent = formatPercent(Number($("#contribution-rate").value), 0);
-  bindEvents();
-  renderHistory();
-  renderPortfolio();
-  renderDashboard();
-  renderSettingsAssumptions();
-  $("#advanced-date").value = localDateTimeValue();
-  $("#portfolio-market-date").value = localDateTimeValue();
-  $("#manual-quote-date").value = localDateTimeValue();
-  updateMarketEntryAvailability();
-  updateAdvancedTransactionFields();
-  void loadMarket();
-  applyModelSettingsToSimulation();
-  const inflationFetchedAt = modelSettings.inflationFetchedAt ? Date.parse(modelSettings.inflationFetchedAt) : 0;
-  if (
-    !modelSettings.inflationSource ||
-    !Number.isFinite(inflationFetchedAt) ||
-    Date.now() - inflationFetchedAt > 30 * 24 * 60 * 60 * 1000
-  ) {
-    void refreshInflationAssumption();
+  try {
+    await loadCopy();
+    syncUiPreferenceControls();
+    migrateStoredCurrencyToToman();
+    modelSettings = loadModelSettings();
+    restoreProviderApiKey();
+    renderSimulationWeightInputs();
+    renderSettingsAssumptions();
+    applyModelSettingsToSimulation();
+    restoreProfile();
+    $("#contribution-output").textContent = formatPercent(Number($("#contribution-rate").value), 0);
+    bindEvents();
+    renderHistory();
+    renderPortfolio();
+    renderDashboard();
+    renderSettingsAssumptions();
+    $("#advanced-date").value = localDateTimeValue();
+    $("#portfolio-market-date").value = localDateTimeValue();
+    $("#manual-quote-date").value = localDateTimeValue();
+    updateMarketEntryAvailability();
+    updateAdvancedTransactionFields();
+    void loadMarket();
+    applyModelSettingsToSimulation();
+    const inflationFetchedAt = modelSettings.inflationFetchedAt ? Date.parse(modelSettings.inflationFetchedAt) : 0;
+    if (
+      !modelSettings.inflationSource ||
+      !Number.isFinite(inflationFetchedAt) ||
+      Date.now() - inflationFetchedAt > 30 * 24 * 60 * 60 * 1000
+    ) {
+      void refreshInflationAssumption();
+    }
+    showStorageWarning();
+  } catch {
+    const error = $("#app-error");
+    if (error) {
+      error.hidden = false;
+      error.textContent = text(
+        "app.hydrationFailed",
+        "Saved data could not be fully loaded. Existing browser data was left in place; review or restore a backup before continuing.",
+      );
+    }
+  } finally {
+    document.documentElement.dataset.hydrating = "false";
+    $("#app-loading")?.setAttribute("hidden", "");
   }
-  showStorageWarning();
 }
 
 init();
