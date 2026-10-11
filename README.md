@@ -47,7 +47,7 @@ For the maintained documentation map and the status of historical reviews and pr
 
 Synthora's optional PostHog analytics runs without an in-app prompt when a project token is configured for production. It sends one product_opened event per page load with the app name as its only custom property. PostHog also receives a session-scoped anonymous identifier and ordinary request metadata such as IP address and browser details; automatic page views, autocapture, session replay, exception capture, feature flags, and financial or workspace data are disabled.
 
-Set the public project token and host in posthog-config.js to enable analytics. Leave the token blank to keep it inactive; visitors are not asked to select a project or configure analytics. Use the public project ingestion token, not a personal API key.
+The US project token and host are preconfigured in posthog-config.js. Update that file to change the token or endpoint; set projectToken to an empty string to keep analytics inactive. Visitors are not asked to select a project or configure analytics. Use the public project ingestion token, not a personal API key.
 
 ## Architecture
 
