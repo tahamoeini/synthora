@@ -44,11 +44,9 @@ For the maintained documentation map and the status of historical reviews and pr
 - Clear labels when a calculation uses observed historical data versus model assumptions.
 
 ## Optional analytics
+Synthora uses a same-origin Cloudflare Pages Function with the encrypted `POSTHOG_PROJECT_TOKEN` secret. The browser bundle contains a proxy placeholder, not the project token. It captures `product_opened`, allowlisted route views, safe button/link interaction categories, and feature-flag evaluations. Analytics sends no form values, user content, imported documents, portfolio data, query strings, or user-created labels. Portfolio amounts, asset symbols, preferences, scenarios, profiles, synced records, and financial content are excluded from analytics.
 
-Synthora's optional PostHog analytics runs without an in-app prompt when a project token is configured for production. It sends one product_opened event per page load with the app name as its only custom property. PostHog also receives a session-scoped anonymous identifier and ordinary request metadata such as IP address and browser details; automatic page views, autocapture, session replay, exception capture, feature flags, and financial or workspace data are disabled.
-
-The US project token and host are preconfigured in posthog-config.js. Update that file to change the token or endpoint; set projectToken to an empty string to keep analytics inactive. Visitors are not asked to select a project or configure analytics. Use the public project ingestion token, not a personal API key.
-
+Feature flags are enabled. Session replay, surveys, autocapture, and exception capture are off by default, and survey auto-display is disabled. No in-app setup or project-selection prompt is shown. See [docs/posthog-analytics.md](docs/posthog-analytics.md) for the Cloudflare secret, options, and privacy boundary.
 ## Architecture
 
 The project intentionally has no frontend framework or runtime dependency.
