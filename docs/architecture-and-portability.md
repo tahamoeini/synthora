@@ -6,6 +6,10 @@ Synthora is a local-first financial planning and portfolio-tracking tool. The br
 
 The current deployable shape is a static site plus same-origin /api/ routes. Cloudflare Pages is the first hosting target. This document describes where Cloudflare-specific behavior currently lives and how to keep a later move to another edge platform or a small server practical.
 
+
+
+Optional PostHog analytics is separate from the financial planning and sync paths. It loads only in a production browser build with a configured public project token and shows no in-app setup or consent prompt. Its single product_opened event has the fixed application name as its only custom property; PostHog also receives a session-scoped anonymous identifier and ordinary request metadata. Document text, portfolio records, searches, and other workspace data are not sent.
+
 ## Current system
 
 ```mermaid

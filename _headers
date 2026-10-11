@@ -6,3 +6,7 @@
 
 /styles.css
   Cache-Control: public, max-age=0, must-revalidate
+/posthog-config.js
+  Cache-Control: public, max-age=0, must-revalidate
+/posthog-analytics.js
+  Cache-Control: public, max-age=0, must-revalidate
