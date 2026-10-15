@@ -6,9 +6,7 @@ Synthora is a local-first financial planning and portfolio-tracking tool. The br
 
 The current deployable shape is a static site plus same-origin /api/ routes. Cloudflare Pages is the first hosting target. This document describes where Cloudflare-specific behavior currently lives and how to keep a later move to another edge platform or a small server practical.
 
-
-
-Optional PostHog analytics is separate from the financial planning and sync paths. It loads only in a production browser build with a configured public project token and shows no in-app setup or consent prompt. Its single product_opened event has the fixed application name as its only custom property; PostHog also receives a session-scoped anonymous identifier and ordinary request metadata. Document text, portfolio records, searches, and other workspace data are not sent.
+Optional PostHog analytics is separate from the financial planning and sync paths. It loads only in an HTTPS deployment with a configured server-side `POSTHOG_PROJECT_TOKEN`; the browser bundle contains a proxy placeholder and sends events through the same-origin `/api/posthog/*` Pages Function. The client captures `product_opened`, allowlisted `page_viewed` route IDs, sanitized `ui_interaction` and `feature_used` events, and feature-flag evaluations. Analytics uses a session-scoped anonymous identifier (`sessionStorage`, `person_profiles: "never"`); session replay, surveys, autocapture, and exception capture are disabled, and there is no in-app setup or consent prompt. Event fields are allowlisted. Document text, portfolio records, searches, and other workspace data are not sent. The proxy drops cookies, referrer, browser user-agent, and visitor IP headers before forwarding, though PostHog may still process network metadata.
 
 ## Current system
 
