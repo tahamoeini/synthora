@@ -41,7 +41,7 @@ window.__APP_ANALYTICS__?.trackIssue("validation");
 window.__APP_ANALYTICS__?.trackTiming(" onboarding ".trim(), 640);
 ```
 
-Approved workflow identifiers for this app: `onboarding`, `portfolio`, `market-data`, `scenario`, `forecast`, `sync`, `import`, `export`.
+Approved workflow identifiers for this app: `onboarding`, `portfolio`, `market-data`, `scenario`, `forecast`, `sync`, `import`, `export`, `plan-generate`, `plan-save`.
 
 - `workflow_step` has only `app_name`, `route_id`, `step_id`, `outcome` (started/completed/failed/cancelled).
 - `client_issue` has only `app_name`, `route_id`, `issue_kind` (runtime/promise/network/validation/timeout/render/storage/unknown).
@@ -59,3 +59,7 @@ Approved workflow identifiers for this app: `onboarding`, `portfolio`, `market-d
 
 **Validation:** confirm the encrypted Cloudflare Pages binding, deploy the Function with the frontend, verify its static SDK route (not an HTML fallback), exercise an actual workflow, then confirm each event's allowlisted properties in PostHog Live Events. Compare started and terminal outcomes; test failed requests and rejected promises without exposing sensitive content. Verify ad blockers and offline operation degrade gracefully. Source module: `posthog-analytics.js`.
 
+
+## Production analytics coverage update
+
+2026-10-18: Actual operation hooks were added for market-data refresh, independent forecasting, plan generation and saving, secure-sync connection/creation, and backup import/export. Event values contain only allowlisted step identifiers and terminal outcomes. The generic client-performance event records TTFB, FCP, LCP and CLS in coarse bands where the browser supports observing them; values are not full certified Core Web Vitals. Data Catalog access is currently scope-gated, and production event delivery, replay eligibility and alert thresholds require independent validation. Session replay and raw error recording remain disabled.
