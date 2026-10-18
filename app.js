@@ -1089,6 +1089,8 @@ function syncErrorMessage(error) {
 
 async function createEncryptedSync() {
   if (!window.confirm(text("sync.createConfirm"))) return;
+  const startedAt = Date.now();
+  window.__APP_ANALYTICS__?.trackWorkflow("sync", "started");
   try {
     const snapshot = currentSyncSnapshot();
     const recoveryKey = await generateRecoveryKey();
@@ -1105,9 +1107,14 @@ async function createEncryptedSync() {
     }
     $("#sync-copy-recovery")?.removeAttribute("hidden");
     setSyncStatus(text("sync.created"), "success");
+    window.__APP_ANALYTICS__?.trackWorkflow("sync", "completed");
     updateSyncControls();
   } catch (error) {
+    window.__APP_ANALYTICS__?.trackWorkflow("sync", "failed");
+    window.__APP_ANALYTICS__?.trackIssue("network");
     setSyncStatus(syncErrorMessage(error), "warning");
+  } finally {
+    window.__APP_ANALYTICS__?.trackTiming("sync", Date.now() - startedAt);
   }
 }
 
@@ -1128,6 +1135,8 @@ async function connectEncryptedSync() {
     setSyncStatus(text("sync.invalidRecoveryKey"), "warning");
     return;
   }
+  const startedAt = Date.now();
+  window.__APP_ANALYTICS__?.trackWorkflow("sync", "started");
   try {
     const { response, data } = await requestSync("GET", credentials);
     if (response.status === 404 && data.error === "sync-deleted") {
@@ -1147,9 +1156,14 @@ async function connectEncryptedSync() {
     syncCredentials = credentials;
     syncRevision = Number(data.revision);
     setSyncStatus(text("sync.connected"), "success");
+    window.__APP_ANALYTICS__?.trackWorkflow("sync", "completed");
     updateSyncControls();
   } catch (error) {
+    window.__APP_ANALYTICS__?.trackWorkflow("sync", "failed");
+    window.__APP_ANALYTICS__?.trackIssue("network");
     setSyncStatus(syncErrorMessage(error), "warning");
+  } finally {
+    window.__APP_ANALYTICS__?.trackTiming("sync", Date.now() - startedAt);
   }
 }
 
@@ -4451,12 +4465,15 @@ function renderPlanOutput(plan) {
 }
 
 function renderPlan({ scrollIntoView = true, validate = true } = {}) {
+  if (validate) window.__APP_ANALYTICS__?.trackWorkflow("plan-generate", "started");
   const inputs = getPlanInputs();
   if (!(inputs.salary > 0)) {
     if (validate) {
       $("#salary").focus();
       $("#salary").setCustomValidity(text("errors.salary", fallbackCopy.errors.salary));
       $("#salary").reportValidity();
+      window.__APP_ANALYTICS__?.trackWorkflow("plan-generate", "failed");
+      window.__APP_ANALYTICS__?.trackIssue("validation");
     }
     return false;
   }
@@ -4474,6 +4491,7 @@ function renderPlan({ scrollIntoView = true, validate = true } = {}) {
   }
   renderDashboard();
   if (scrollIntoView) resultPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (validate) window.__APP_ANALYTICS__?.trackWorkflow("plan-generate", "completed");
   return true;
 }
 
@@ -4489,10 +4507,13 @@ function saveHistory(inputs, recommendation, contribution) {
 
 function savePlanPreview() {
   if (!lastPlan || lastPlan.saved) return;
+  window.__APP_ANALYTICS__?.trackWorkflow("plan-save", "started");
   const previewStatus = $("#plan-preview-status");
   const cryptoWeight =
     (Number(lastPlan.recommendation.weights.bitcoin) || 0) + (Number(lastPlan.recommendation.weights.ethereum) || 0);
   if (cryptoWeight > 5 + 1e-6) {
+    window.__APP_ANALYTICS__?.trackWorkflow("plan-save", "failed");
+    window.__APP_ANALYTICS__?.trackIssue("validation");
     if (previewStatus) {
       previewStatus.textContent = "وزن مجموع بیت‌کوین و اتریوم نباید از ۵٪ بیشتر شود.";
       previewStatus.className = "transfer-status transfer-warning";
@@ -4500,6 +4521,8 @@ function savePlanPreview() {
     return;
   }
   if (!saveHistory(lastPlan.inputs, lastPlan.recommendation, lastPlan.contribution)) {
+    window.__APP_ANALYTICS__?.trackWorkflow("plan-save", "failed");
+    window.__APP_ANALYTICS__?.trackIssue("storage");
     if (previewStatus) {
       previewStatus.textContent = "این پیشنهاد ذخیره نشد؛ فضای ذخیره‌سازی مرورگر را بررسی کن.";
       previewStatus.className = "transfer-status transfer-warning";
@@ -4507,6 +4530,7 @@ function savePlanPreview() {
     return;
   }
   lastPlan.saved = true;
+  window.__APP_ANALYTICS__?.trackWorkflow("plan-save", "completed");
   appStore.setState({ plan: lastPlan });
   renderHistory();
   renderDashboard();
