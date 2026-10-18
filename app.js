@@ -5027,6 +5027,8 @@ function exportHistory() {
 }
 
 function exportPersonalBackup() {
+  const startedAt = Date.now();
+  window.__APP_ANALYTICS__?.trackWorkflow("export", "started");
   try {
     const snapshot = currentSyncSnapshot();
     const backup = createPersonalBackup(snapshot);
@@ -5044,9 +5046,14 @@ function exportPersonalBackup() {
     writeStatusTimestamp(LAST_BACKUP_REQUEST_KEY, requestedAt);
     renderBackupStatus();
     setLocalizedTransferStatus(() => text("backup.exportGenerated"), "success");
+    window.__APP_ANALYTICS__?.trackWorkflow("export", "completed");
   } catch (error) {
     const key = error?.message === "sync.localDataUnavailable" ? "backup.localUnavailable" : "backup.exportFailed";
     setLocalizedTransferStatus(() => text(key), "warning");
+    window.__APP_ANALYTICS__?.trackWorkflow("export", "failed");
+    window.__APP_ANALYTICS__?.trackIssue("storage");
+  } finally {
+    window.__APP_ANALYTICS__?.trackTiming("export", Date.now() - startedAt);
   }
 }
 
@@ -5108,13 +5115,19 @@ async function importPersonalBackupFile(event) {
   if (!file) return;
   if (file.size > 2 * 1024 * 1024) {
     setLocalizedTransferStatus(() => text("history.transfer.tooLarge"), "warning");
+    window.__APP_ANALYTICS__?.trackIssue("validation");
     return;
   }
+  const startedAt = Date.now();
+  window.__APP_ANALYTICS__?.trackWorkflow("import", "started");
   try {
     const parsed = parsePersonalBackup(JSON.parse(await file.text()));
     const profileSummary = parsed.profile ? text("backup.profilePresent") : text("backup.profileAbsent");
     const confirmMessage = `${text("backup.restoreConfirm")}\n\n${text("backup.includes")}: ${formatIRR(parsed.history.length)} ${text("backup.planCount")}, ${formatIRR(activePortfolioVersion(parsed.portfolio).transactions.length)} ${text("backup.transactionCount")}, ${profileSummary}, ${text("backup.modelSettings")}, ${text("backup.preferences")}.\n${text("backup.excludes")}: ${text("backup.secrets")}, ${text("backup.marketCache")}, ${text("backup.syncCredentials")}.\n\n${text("backup.replaceEffect")}`;
-    if (!window.confirm(confirmMessage)) return;
+    if (!window.confirm(confirmMessage)) {
+      window.__APP_ANALYTICS__?.trackWorkflow("import", "cancelled");
+      return;
+    }
     const writes = [
       [PROFILE_KEY, parsed.profile || {}],
       [HISTORY_KEY, parsed.history],
@@ -5141,9 +5154,14 @@ async function importPersonalBackupFile(event) {
     renderMarket(liveMarket, lastKnownMarket);
     renderBackupStatus();
     setLocalizedTransferStatus(() => text("backup.imported"), "success");
+    window.__APP_ANALYTICS__?.trackWorkflow("import", "completed");
   } catch (error) {
     const key = error?.message === "storage-failed" ? "history.transfer.storageFailed" : "backup.invalid";
     setLocalizedTransferStatus(() => text(key), "warning");
+    window.__APP_ANALYTICS__?.trackWorkflow("import", "failed");
+    window.__APP_ANALYTICS__?.trackIssue("validation");
+  } finally {
+    window.__APP_ANALYTICS__?.trackTiming("import", Date.now() - startedAt);
   }
 }
 
@@ -5301,6 +5319,8 @@ async function runIndependentSimulation(event) {
     return;
   }
   simulationSummaryEl.innerHTML = '<div class="empty-state">در حال محاسبه‌ی سناریوهای مستقل…</div>';
+  const startedAt = Date.now();
+  window.__APP_ANALYTICS__?.trackWorkflow("forecast", "started");
   try {
     const market = await loadSimulationHistory(inputs);
     if (appStore.getState().activeView !== "simulation") return;
@@ -5310,16 +5330,23 @@ async function runIndependentSimulation(event) {
     });
     if (!result || appStore.getState().activeView !== "simulation") return;
     renderSimulation(result.simulation, result.monteCarlo, result.validation, result.methodComparison);
+    window.__APP_ANALYTICS__?.trackWorkflow("forecast", "completed");
     const note = $("#analysis-method-note");
     if (note)
       note.textContent = `دامنه‌ی سناریوها تخمینی است · افق ${formatIRR(inputs.horizonYears)} سال · وزن‌ها پس از نرمال‌سازی اعمال شدند · هیچ داده‌ی پرتفوی یا برنامه‌ی ذخیره‌شده استفاده نشد.`;
   } catch {
+    window.__APP_ANALYTICS__?.trackWorkflow("forecast", "failed");
+    window.__APP_ANALYTICS__?.trackIssue("render");
     if (appStore.getState().activeView === "simulation")
       simulationSummaryEl.innerHTML = `<div class="empty-state">محاسبه کامل نشد؛ مقدار ورودی‌ها را بررسی کن و دوباره اجرا کن.</div>`;
+  } finally {
+    window.__APP_ANALYTICS__?.trackTiming("forecast", Date.now() - startedAt);
   }
 }
 
 async function loadMarket(force = false) {
+  const startedAt = Date.now();
+  window.__APP_ANALYTICS__?.trackWorkflow("market-data", "started");
   setStatus(text("status.loading", fallbackCopy.status.loading), "loading");
   appStore.setState({ marketStatus: "loading", error: null });
   const cacheDisabled = appStore.getState().marketCacheDisabled;
@@ -5336,6 +5363,8 @@ async function loadMarket(force = false) {
     renderDashboard();
     void loadFx();
     setStatus(text("status.cached", fallbackCopy.status.cached), "success");
+    window.__APP_ANALYTICS__?.trackWorkflow("market-data", "completed");
+    window.__APP_ANALYTICS__?.trackTiming("market-data", Date.now() - startedAt);
     return;
   }
   try {
@@ -5372,7 +5401,10 @@ async function loadMarket(force = false) {
     renderDashboard();
     void loadFx();
     setStatus(text("status.connected", fallbackCopy.status.connected), "success");
+    window.__APP_ANALYTICS__?.trackWorkflow("market-data", "completed");
   } catch {
+    window.__APP_ANALYTICS__?.trackWorkflow("market-data", "failed");
+    window.__APP_ANALYTICS__?.trackIssue("network");
     const cacheDisabledNow = appStore.getState().marketCacheDisabled;
     lastKnownMarket = cacheDisabledNow ? null : readJson(MARKET_CACHE_KEY, null);
     const cachedHistory = lastKnownMarket && typeof lastKnownMarket === "object" ? lastKnownMarket : null;
@@ -5398,6 +5430,8 @@ async function loadMarket(force = false) {
         : text("status.timeout", fallbackCopy.status.unavailable),
       "warning",
     );
+  } finally {
+    window.__APP_ANALYTICS__?.trackTiming("market-data", Date.now() - startedAt);
   }
 }
 
