@@ -70,7 +70,7 @@ function trackFeature(featureId, outcome = "started") {
  * Only predefined step identifiers, outcomes, issue types and numeric duration bands are accepted.
  * Never pass names, financial/document content, URLs, request bodies, or exception messages.
  */
-const WORKFLOW_STEPS = new Set(["onboarding","portfolio","market-data","scenario","forecast","sync","import","export"]);
+const WORKFLOW_STEPS = new Set(["onboarding","portfolio","market-data","scenario","forecast","sync","import","export","plan-generate","plan-save"]);
 const WORKFLOW_RESULTS = new Set(["started", "completed", "failed", "cancelled"]);
 const ISSUE_KINDS = new Set(["runtime", "promise", "network", "validation", "timeout", "render", "storage", "unknown"]);
 function trackWorkflow(step, outcome = "started") {
