@@ -193,6 +193,8 @@ export function createNavigationController(
       if (!updated) reportUrlUpdateFailure();
     }
     store.setState({ activeView: viewId, mobileNavOpen: false });
+    const analyticsStep = ({ dashboard: "onboarding", plan: "scenario", portfolio: "portfolio", simulation: "forecast", history: "scenario", assets: "market-data", settings: "sync" })[viewId];
+    if (changed && analyticsStep) windowRef?.__APP_ANALYTICS__?.trackWorkflow(analyticsStep, "completed");
     if (changed) safeScrollTo(windowRef, 0, 0);
     return true;
   }
